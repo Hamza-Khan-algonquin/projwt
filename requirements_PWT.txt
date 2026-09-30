@@ -1,0 +1,2 @@
+# ProjWT — Phase 1 (BLE observation) dependencies
+bleak>=0.22.0
