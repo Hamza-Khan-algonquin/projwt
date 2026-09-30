@@ -2,24 +2,23 @@
 """ble_logger_PWT.py — Phase 1, step 3.
 
 Subscribe to notifying characteristics on the band and log every packet
-(timestamp + characteristic UUID + raw hex) to a JSONL file. Use the
---label flag to tag a capture ("rest", "wrist_wave", "walk") so you can
-later diff the byte patterns and start mapping which characteristic carries
-accelerometer vs. heart rate vs. temperature.
+(timestamp + characteristic UUID + raw hex) to a JSONL file. Use --label to
+tag a capture ("rest", "wrist_wave", "walk") so you can diff byte patterns and
+map which characteristic carries accelerometer vs. heart rate vs. temperature.
 
 Usage:
-    # subscribe to ALL notify characteristics:
-    python src/ble_logger_PWT.py <ADDRESS> --label rest
+    # log ALL notify chars for a fixed 30s, then stop automatically:
+    python ble_logger_PWT.py <ADDRESS> --label rest --seconds 30
 
-    # subscribe to specific characteristics only:
-    python src/ble_logger_PWT.py <ADDRESS> --char <UUID> --char <UUID> --label wave
+    # log until you press Ctrl+C:
+    python ble_logger_PWT.py <ADDRESS> --label wave
 
-Press Ctrl+C to stop; the log path is printed on exit.
+    # only specific characteristics:
+    python ble_logger_PWT.py <ADDRESS> --char <UUID> --label test
 """
 import argparse
 import asyncio
 import json
-import signal
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,7 +27,7 @@ from bleak import BleakClient
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 
-async def run(address: str, chars: list[str], label: str) -> None:
+async def run(address: str, chars: list[str], label: str, seconds: float | None) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"capture_{label}_{stamp}_PWT.jsonl"
@@ -74,18 +73,18 @@ async def run(address: str, chars: list[str], label: str) -> None:
                 print(f"could not subscribe {uuid}: {exc}")
 
         print(f"\nLogging to {log_path}  (label='{label}')")
-        print("Do the activity now (hold still / wave wrist / walk). Ctrl+C to stop.\n")
-
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        try:
-            loop.add_signal_handler(signal.SIGINT, stop.set)
-        except NotImplementedError:
-            pass  # Windows fallback: Ctrl+C raises KeyboardInterrupt below
+        if seconds:
+            print(f"Capturing for {seconds:.0f}s — do the activity now.\n")
+        else:
+            print("Do the activity now. Press Ctrl+C to stop.\n")
 
         try:
-            await stop.wait()
-        except KeyboardInterrupt:
+            if seconds:
+                await asyncio.sleep(seconds)
+            else:
+                while True:
+                    await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
             pass
         finally:
             for uuid in notify_chars:
@@ -94,7 +93,8 @@ async def run(address: str, chars: list[str], label: str) -> None:
                 except Exception:  # noqa: BLE001
                     pass
             log_file.close()
-            print(f"\nStopped. {packet_count} packets -> {log_path}")
+
+    print(f"\nStopped. {packet_count} packets -> {log_path}")
 
 
 def main() -> None:
@@ -103,8 +103,13 @@ def main() -> None:
     p.add_argument("--char", dest="chars", action="append", default=[],
                    help="specific characteristic UUID to subscribe to (repeatable)")
     p.add_argument("--label", default="capture", help="tag for this capture, e.g. rest/wave/walk")
+    p.add_argument("--seconds", type=float, default=None,
+                   help="auto-stop after N seconds (default: run until Ctrl+C)")
     args = p.parse_args()
-    asyncio.run(run(args.address, args.chars, args.label))
+    try:
+        asyncio.run(run(args.address, args.chars, args.label, args.seconds))
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
 
 
 if __name__ == "__main__":
