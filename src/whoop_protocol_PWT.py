@@ -15,24 +15,40 @@ below come from community write-ups and may need iteration on real hardware.
 """
 import zlib
 
-# --- BLE UUIDs (from our own gatt_explorer_PWT.py scan of the band) ---
+# --- BLE UUIDs (from our own gatt_explorer_PWT.py scan of THIS band) ---
+# Note: our hardware scan is authoritative. 61080001 is the SERVICE; the
+# write characteristic is 61080002. (Some community repos label these
+# differently / off-by-one — trust the scan.)
 SERVICE_UUID = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
 CMD_CHAR_UUID = "61080002-8d6d-82b8-614a-1c8cb0f8dcc6"          # write / write-no-response
-NOTIFY_CHARS = [
-    "61080003-8d6d-82b8-614a-1c8cb0f8dcc6",                     # events / responses
-    "61080004-8d6d-82b8-614a-1c8cb0f8dcc6",                     # data
-    "61080005-8d6d-82b8-614a-1c8cb0f8dcc6",                     # diagnostics
-    "61080007-8d6d-82b8-614a-1c8cb0f8dcc6",
-]
+EVENT_CHAR_UUID = "61080003-8d6d-82b8-614a-1c8cb0f8dcc6"        # events / command replies
+DATA_CHAR_UUID = "61080004-8d6d-82b8-614a-1c8cb0f8dcc6"         # real-time data (96-byte packets)
+DIAG_CHAR_UUID = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"         # diagnostics
+NOTIFY_CHARS = [EVENT_CHAR_UUID, DATA_CHAR_UUID, DIAG_CHAR_UUID,
+                "61080007-8d6d-82b8-614a-1c8cb0f8dcc6"]
 HR_CHAR_UUID = "00002a37-0000-1000-8000-00805f9b34fb"          # standard Heart Rate
 
 # --- packet types ---
 TYPE_COMMAND = 0x23
 
 # --- command IDs (community-sourced; verify on hardware) ---
-CMD_RT_HR_ON = 0x03    # begin real-time streaming
-CMD_RT_HR_OFF = 0x04   # stop real-time streaming
-COMMANDS = {"hr_on": CMD_RT_HR_ON, "hr_off": CMD_RT_HR_OFF}
+CMD_GET_BATTERY = 0x01     # request battery level
+CMD_GET_INFO = 0x02        # request device info (fw/serial/hw)
+CMD_RT_HR_ON = 0x03        # begin real-time streaming (data on DATA_CHAR)
+CMD_RT_HR_OFF = 0x04       # stop real-time streaming
+CMD_HELLO = 0x05           # handshake / keep-alive (send this FIRST)
+COMMANDS = {
+    "battery": CMD_GET_BATTERY,
+    "info": CMD_GET_INFO,
+    "hr_on": CMD_RT_HR_ON,
+    "hr_off": CMD_RT_HR_OFF,
+    "hello": CMD_HELLO,
+}
+
+# Command IDs and the 96-byte real-time packet layout are informed by the
+# MIT-licensed reference christianmeurer/whoop-reader and the community work it
+# credits (jogolden/whoomp, bWanShiTong/reverse-engineering-whoop). The FRAMING
+# here (CRC8 + zlib-CRC32) was independently verified against real packets.
 
 
 def crc8(data: bytes) -> int:
