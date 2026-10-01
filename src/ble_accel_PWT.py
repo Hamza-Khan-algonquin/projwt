@@ -84,47 +84,46 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
     log_path = LOG_DIR / f"{tag}_{stamp}_PWT.jsonl"
     state = {"key": None}
     combos: dict[str, Counter] = {}
+    log_file = log_path.open("w", encoding="utf-8")
 
-    async with BleakClient(address, timeout=25.0) as client:
-        print(f"Connected: {client.is_connected}\n")
-        log_file = log_path.open("w", encoding="utf-8")
+    def make_handler(uuid):
+        def handler(_sender, payload):
+            frame = bytes(payload)
+            key = state["key"]
+            log_file.write(json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "key": key, "char": uuid, "len": len(frame), "hex": frame.hex(),
+            }) + "\n")
+            log_file.flush()
+            t, s = classify(frame)
+            combo = f"{wp.cname(uuid)}/type{t:#04x}.{s:#04x}" if t is not None else wp.cname(uuid)
+            if key is not None:
+                combos.setdefault(key, Counter())[combo] += 1
+            live = not mode_sweep and not mode_cmd
+            if live and uuid == wp.DATA_CHAR_UUID:
+                rt = wp.parse_rt(frame)
+                if rt:
+                    rr = (" RR=" + ",".join(map(str, rt["rr"])) + "ms") if rt["rr"] else ""
+                    print(f"  [HR] {rt['hr']} bpm{rr}")
+                else:
+                    print(f"  [?{s:#04x}] {frame.hex(' ')}{accel_guess(frame)}")
+            elif live and uuid == wp.EVENT_CHAR_UUID:
+                print(f"  [EVT] {frame.hex(' ')}")
+        return handler
 
-        def make_handler(uuid):
-            def handler(_sender, payload):
-                frame = bytes(payload)
-                key = state["key"]
-                log_file.write(json.dumps({
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "key": key, "char": uuid, "len": len(frame), "hex": frame.hex(),
-                }) + "\n")
-                log_file.flush()
-                t, s = classify(frame)
-                combo = f"{wp.cname(uuid)}/type{t:#04x}.{s:#04x}" if t is not None else wp.cname(uuid)
-                if key is not None:
-                    combos.setdefault(key, Counter())[combo] += 1
-                if not mode_sweep and uuid == wp.DATA_CHAR_UUID:
-                    rt = wp.parse_rt(frame)
-                    if rt:
-                        rr = (" RR=" + ",".join(map(str, rt["rr"])) + "ms") if rt["rr"] else ""
-                        print(f"  [HR] {rt['hr']} bpm{rr}")
-                    else:
-                        print(f"  [?{s:#04x}] {frame.hex(' ')}{accel_guess(frame)}")
-                elif not mode_sweep and uuid == wp.EVENT_CHAR_UUID:
-                    print(f"  [EVT] {frame.hex(' ')}")
-            return handler
+    async def session(client):
+        async def send(cmd, data=b""):
+            await client.write_gatt_char(wp.CMD_CHAR_UUID,
+                                         wp.build_packet(cmd=cmd, data=data), response=with_response)
 
         for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
             try:
                 await client.start_notify(uuid, make_handler(uuid))
             except Exception as exc:  # noqa: BLE001
                 print(f"  (subscribe {wp.cname(uuid)} failed: {exc})")
-        await client.write_gatt_char(wp.CMD_CHAR_UUID,
-                                     wp.build_packet(cmd=wp.CMD_HELLO), response=with_response)
+                raise
+        await send(wp.CMD_HELLO)
         await asyncio.sleep(0.8)
-
-        async def send(cmd, data=b""):
-            await client.write_gatt_char(wp.CMD_CHAR_UUID,
-                                         wp.build_packet(cmd=cmd, data=data), response=with_response)
 
         if mode_cmd:
             print("HR on (0x03 01); sweeping extra opcodes 0x%02x-0x%02x for a raw/accel"
@@ -187,6 +186,24 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
                 await client.stop_notify(uuid)
             except Exception:  # noqa: BLE001
                 pass
+
+    try:
+        for attempt in range(1, 5):
+            try:
+                async with BleakClient(address, timeout=25.0) as client:
+                    print(f"Connected: {client.is_connected} (attempt {attempt})\n")
+                    if not client.is_connected:
+                        raise RuntimeError("link down after connect")
+                    await session(client)
+                break
+            except Exception as exc:  # noqa: BLE001
+                print(f"\nattempt {attempt} dropped: {exc}")
+                if attempt < 4:
+                    print("Reconnecting in 5s ...")
+                    await asyncio.sleep(5)
+                else:
+                    print("Giving up — toggle Bluetooth OFF/ON, tap the band, retry.")
+    finally:
         log_file.close()
 
     print(f"\n=== Done -> {log_path} ===")
