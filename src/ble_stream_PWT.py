@@ -124,20 +124,28 @@ async def run(address: str, seconds: float, with_response: bool,
                     await _write(client, wp.build_packet(cmd=start_cmd, seq=1, data=start_data),
                                  with_response, f"START (0x{start_cmd:02x}){dtag}")
 
-                    print(f"\nListening {seconds:.0f}s with keepalive pings "
-                          "(every 2s) — hold still.\n")
+                    print(f"\nListening {seconds:.0f}s — holding the link with a "
+                          "harmless battery read (not a WHOOP command).\n")
                     try:
                         elapsed = 0.0
-                        ping_seq = 10
+                        last_batt = -10.0
                         while elapsed < seconds:
                             await asyncio.sleep(2.0)
                             elapsed += 2.0
-                            # keepalive HELLO ping so the band doesn't idle-drop us
-                            await client.write_gatt_char(
-                                wp.CMD_CHAR_UUID,
-                                wp.build_packet(cmd=wp.CMD_HELLO, seq=ping_seq),
-                                response=with_response)
-                            ping_seq = (ping_seq + 1) & 0xFF
+                            # Keepalive via a STANDARD BLE read -> pure link activity
+                            # that won't reset the WHOOP streaming session the way a
+                            # HELLO/command might.
+                            try:
+                                val = await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)
+                                if elapsed - last_batt >= 10:
+                                    batt = val[0] if val else "?"
+                                    print(f"   (keepalive ok; battery={batt}%)")
+                                    last_batt = elapsed
+                            except Exception:  # noqa: BLE001
+                                # fall back to a HELLO write if the read isn't allowed
+                                await client.write_gatt_char(
+                                    wp.CMD_CHAR_UUID, wp.build_packet(cmd=wp.CMD_HELLO),
+                                    response=with_response)
                     except asyncio.CancelledError:
                         pass
                     finally:

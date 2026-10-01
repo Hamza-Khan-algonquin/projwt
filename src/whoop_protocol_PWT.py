@@ -35,6 +35,7 @@ DATA_CHAR_UUID = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"         # REAL-TIME sens
 DIAG_CHAR_UUID = "61080007-8d6d-82b8-614a-1c8cb0f8dcc6"         # diagnostics
 NOTIFY_CHARS = [RESP_CHAR_UUID, EVENT_CHAR_UUID, DATA_CHAR_UUID, DIAG_CHAR_UUID]
 HR_CHAR_UUID = "00002a37-0000-1000-8000-00805f9b34fb"          # standard Heart Rate
+BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb"    # standard Battery Level (read)
 
 # Short, UNAMBIGUOUS channel labels. NOTE: all WHOOP custom chars end in
 # "...b0f8dcc6", so never label by the last bytes — they differ in the FIRST block.
