@@ -66,71 +66,82 @@ async def run(address: str, seconds: float, with_response: bool,
     per_char = Counter()
     data_packets = 0
 
-    async with BleakClient(address) as client:
-        print(f"Connected: {client.is_connected}")
-        if do_pair:
+    log_file = log_path.open("w", encoding="utf-8")
+
+    def make_handler(uuid: str):
+        is_data = uuid == wp.DATA_CHAR_UUID
+
+        def handler(_sender, payload: bytearray) -> None:
+            nonlocal data_packets
+            per_char[uuid] += 1
+            rec = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "char": uuid,
+                "len": len(payload),
+                "hex": payload.hex(),
+            }
+            log_file.write(json.dumps(rec) + "\n")
+            log_file.flush()
+            if is_data:
+                data_packets += 1
+                print(f"  <-[DATA(05)] len={len(payload)}  {payload.hex(' ')}")
+            elif per_char[uuid] <= 6:  # don't spam for chatty non-data chars
+                print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
+        return handler
+
+    try:
+        for attempt in range(1, 5):
             try:
-                print(f"pairing... pair() -> {await client.pair()}")
+                async with BleakClient(address, timeout=25.0) as client:
+                    print(f"Connected: {client.is_connected} (attempt {attempt})")
+                    if not client.is_connected:
+                        raise RuntimeError("connect returned but link is down")
+                    await asyncio.sleep(1.5)  # let the encrypted link settle
+                    if do_pair:
+                        try:
+                            print(f"pairing... pair() -> {await client.pair()}")
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"pair() failed/already paired: {exc}")
+
+                    for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
+                        await client.start_notify(uuid, make_handler(uuid))
+                    print("subscribed to all channels\n")
+
+                    if send_hello:
+                        await _write(client, wp.build_packet(cmd=hello_cmd, seq=0),
+                                     with_response, f"HELLO (0x{hello_cmd:02x})")
+                        await asyncio.sleep(1.0)  # let the handshake settle
+
+                    dtag = f" data={start_data.hex()}" if start_data else ""
+                    await _write(client, wp.build_packet(cmd=start_cmd, seq=1, data=start_data),
+                                 with_response, f"START (0x{start_cmd:02x}){dtag}")
+
+                    print(f"\nListening {seconds:.0f}s — keep the band on, hold still.\n")
+                    try:
+                        await asyncio.sleep(seconds)
+                    except asyncio.CancelledError:
+                        pass
+                    finally:
+                        try:
+                            await _write(client, wp.build_packet(cmd=stop_cmd, seq=2),
+                                         with_response, f"STOP (0x{stop_cmd:02x})")
+                        except Exception:  # noqa: BLE001
+                            pass
+                        for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
+                            try:
+                                await client.stop_notify(uuid)
+                            except Exception:  # noqa: BLE001
+                                pass
+                break  # completed a full listen window
             except Exception as exc:  # noqa: BLE001
-                print(f"pair() failed/already paired: {exc}")
-        print()
-        log_file = log_path.open("w", encoding="utf-8")
-
-        def make_handler(uuid: str):
-            is_data = uuid == wp.DATA_CHAR_UUID
-
-            def handler(_sender, payload: bytearray) -> None:
-                nonlocal data_packets
-                per_char[uuid] += 1
-                rec = {
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "char": uuid,
-                    "len": len(payload),
-                    "hex": payload.hex(),
-                }
-                log_file.write(json.dumps(rec) + "\n")
-                log_file.flush()
-                if is_data:
-                    data_packets += 1
-                    print(f"  <-[DATA(05)] len={len(payload)}  {payload.hex(' ')}")
-                elif per_char[uuid] <= 6:  # don't spam for chatty non-data chars
-                    print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
-            return handler
-
-        for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
-            try:
-                await client.start_notify(uuid, make_handler(uuid))
-                print(f"subscribed: {uuid}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"could not subscribe {uuid}: {exc}")
-        print()
-
-        if send_hello:
-            await _write(client, wp.build_packet(cmd=hello_cmd, seq=0),
-                         with_response, f"HELLO (0x{hello_cmd:02x})")
-            await asyncio.sleep(1.0)  # let the handshake settle
-
-        dtag = f" data={start_data.hex()}" if start_data else ""
-        await _write(client, wp.build_packet(cmd=start_cmd, seq=1, data=start_data),
-                     with_response, f"START (0x{start_cmd:02x}){dtag}")
-
-        print(f"\nListening {seconds:.0f}s — wear the band, tight skin contact.\n")
-        try:
-            await asyncio.sleep(seconds)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            try:
-                await _write(client, wp.build_packet(cmd=stop_cmd, seq=2),
-                             with_response, f"STOP (0x{stop_cmd:02x})")
-            except Exception:  # noqa: BLE001
-                pass
-            for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
-                try:
-                    await client.stop_notify(uuid)
-                except Exception:  # noqa: BLE001
-                    pass
-            log_file.close()
+                print(f"\nattempt {attempt} dropped: {exc}")
+                if attempt < 4:
+                    print("Tap the band to wake it; reconnecting in 3s ...")
+                    await asyncio.sleep(3)
+                else:
+                    print("Giving up after repeated drops — re-run once the band is awake.")
+    finally:
+        log_file.close()
 
     print(f"\n=== Summary -> {log_path} ===")
     total = sum(per_char.values())
