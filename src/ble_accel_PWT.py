@@ -76,10 +76,11 @@ async def _keepalive_listen(client, seconds):
             pass
 
 
-async def run(address, mode_sweep, start_data, seconds, label, with_response):
+async def run(address, mode_sweep, start_data, seconds, label, with_response,
+              mode_cmd=False, cmd_lo=0x10, cmd_hi=0x1f):
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    tag = "sweep" if mode_sweep else f"accel_{label}"
+    tag = "cmdsweep" if mode_cmd else ("sweep" if mode_sweep else f"accel_{label}")
     log_path = LOG_DIR / f"{tag}_{stamp}_PWT.jsonl"
     state = {"key": None}
     combos: dict[str, Counter] = {}
@@ -125,7 +126,31 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response):
             await client.write_gatt_char(wp.CMD_CHAR_UUID,
                                          wp.build_packet(cmd=cmd, data=data), response=with_response)
 
-        if mode_sweep:
+        if mode_cmd:
+            print("HR on (0x03 01); sweeping extra opcodes 0x%02x-0x%02x for a raw/accel"
+                  % (cmd_lo, cmd_hi))
+            print("stream. Hold still so a rate jump / new subtype means the command.\n")
+            await send(wp.CMD_RT_HR_ON, b"\x01")
+            await asyncio.sleep(1.0)
+            dwell = 4.0
+            for cmd in range(cmd_lo, cmd_hi + 1):
+                state["key"] = f"{cmd:02x}"
+                try:
+                    await send(cmd)
+                    await asyncio.sleep(0.3)
+                    await send(cmd, b"\x01")  # also try with an on-flag payload
+                except Exception as exc:  # noqa: BLE001
+                    print(f"cmd 0x{cmd:02x}: write failed {exc}")
+                await _keepalive_listen(client, dwell)
+                per = combos.get(f"{cmd:02x}", Counter())
+                total = sum(per.values())
+                rate = total / dwell
+                summary = ", ".join(f"{k}={v}" for k, v in per.most_common()) or "(silence)"
+                flag = "   <<< RATE JUMP / check subtype" if rate > 3.0 else ""
+                print(f"cmd 0x{cmd:02x} -> {rate:4.1f}/s  {summary}{flag}")
+            state["key"] = None
+            await send(wp.CMD_RT_HR_OFF)
+        elif mode_sweep:
             print("Sweeping START payloads — watching for NEW subtypes / higher rate.")
             print("(Hold still so extra packets mean the payload, not your motion.)\n")
             dwell = 5.0
@@ -179,14 +204,20 @@ def main() -> None:
                    help="hex START payload to stream live (omit to run the payload sweep)")
     p.add_argument("--seconds", type=float, default=20.0, help="stream duration (live mode)")
     p.add_argument("--label", default="move", help="tag for the capture (live mode)")
+    p.add_argument("--cmd-sweep", action="store_true",
+                   help="keep HR on and sweep extra opcodes (default 0x10-0x1f) for a raw/accel stream")
+    p.add_argument("--cmd-start", type=lambda x: int(x, 0), default=0x10)
+    p.add_argument("--cmd-end", type=lambda x: int(x, 0), default=0x1f)
     p.add_argument("--no-response", action="store_true", help="use write-without-response")
     args = p.parse_args()
 
-    mode_sweep = args.start_data is None
+    mode_cmd = args.cmd_sweep
+    mode_sweep = (args.start_data is None) and not mode_cmd
     start_data = bytes.fromhex(args.start_data) if args.start_data else b""
     try:
         asyncio.run(run(args.address, mode_sweep, start_data, args.seconds,
-                        args.label, not args.no_response))
+                        args.label, not args.no_response,
+                        mode_cmd, args.cmd_start, args.cmd_end))
     except KeyboardInterrupt:
         print("\nStopped by user.")
 
