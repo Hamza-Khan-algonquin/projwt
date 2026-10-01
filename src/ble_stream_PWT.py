@@ -59,7 +59,7 @@ async def _write(client: BleakClient, packet: bytes, with_response: bool, tag: s
 
 async def run(address: str, seconds: float, with_response: bool,
               send_hello: bool, hello_cmd: int, start_cmd: int, stop_cmd: int,
-              do_pair: bool = False) -> None:
+              do_pair: bool = False, start_data: bytes = b"") -> None:
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"stream_{stamp}_PWT.jsonl"
@@ -92,13 +92,8 @@ async def run(address: str, seconds: float, with_response: bool,
                 log_file.flush()
                 if is_data:
                     data_packets += 1
-                    # loud + quick sanity peek at the presumed HR field
-                    hr = None
-                    if len(payload) >= 3:
-                        hr = int.from_bytes(payload[1:3], "little") / 100.0
-                    marker = f"  ~HR≈{hr:.0f}" if hr and 20 < hr < 250 else ""
-                    print(f"  <-[DATA(04)] len={len(payload)}{marker}  {payload[:16].hex(' ')}...")
-                elif per_char[uuid] <= 4:  # don't spam for chatty non-data chars
+                    print(f"  <-[DATA(04)] len={len(payload)}  {payload.hex(' ')}")
+                elif per_char[uuid] <= 6:  # don't spam for chatty non-data chars
                     print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
             return handler
 
@@ -115,8 +110,9 @@ async def run(address: str, seconds: float, with_response: bool,
                          with_response, f"HELLO (0x{hello_cmd:02x})")
             await asyncio.sleep(1.0)  # let the handshake settle
 
-        await _write(client, wp.build_packet(cmd=start_cmd, seq=1),
-                     with_response, f"START (0x{start_cmd:02x})")
+        dtag = f" data={start_data.hex()}" if start_data else ""
+        await _write(client, wp.build_packet(cmd=start_cmd, seq=1, data=start_data),
+                     with_response, f"START (0x{start_cmd:02x}){dtag}")
 
         print(f"\nListening {seconds:.0f}s — wear the band, tight skin contact.\n")
         try:
@@ -164,12 +160,15 @@ def main() -> None:
     p.add_argument("--hello-cmd", type=_parse_int, default=wp.CMD_HELLO)
     p.add_argument("--start-cmd", type=_parse_int, default=wp.CMD_RT_HR_ON)
     p.add_argument("--stop-cmd", type=_parse_int, default=wp.CMD_RT_HR_OFF)
+    p.add_argument("--start-data", default="",
+                   help="hex payload to attach to START, e.g. 01 (toggles/sensor mask)")
     args = p.parse_args()
 
+    start_data = bytes.fromhex(args.start_data) if args.start_data else b""
     try:
         asyncio.run(run(args.address, args.seconds, args.with_response,
                         not args.no_hello, args.hello_cmd, args.start_cmd, args.stop_cmd,
-                        args.pair))
+                        args.pair, start_data))
     except KeyboardInterrupt:
         print("\nStopped by user.")
 

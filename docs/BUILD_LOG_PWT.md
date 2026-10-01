@@ -151,9 +151,19 @@ branch `claude/peaceful-dirac-ko6o1i`.
       accelerometer/activity events (useful later for gesture detection).
 11. **Built `ble_pair_PWT.py`** and added `--pair` to the sweep/stream tools.
     Pairing establishes the encrypted link so the band will honour commands.
-12. **← You are here.** Next: **pair**, then re-sweep **with the band held still**
-    so any DATA response is attributable to the command (not motion), find the real
-    start opcode, then build the decoder.
+12. **PAIRED — and the band now answers our commands.** After pairing, a sweep
+    with write-with-response showed **no more `Insufficient Authentication`**, and
+    commands **`0x01`–`0x04` each returned a genuine 32-byte type-`0x30` reply** on
+    DATA(04) (confirmed: band untouched, timestamps incrementing
+    `0x01e28a92 → …95 → …98 → …9c`). cmd `0x0b` was a physical tap. **Two-way
+    authenticated command/response is working.**
+13. **Open item: continuous streaming.** Each command returns a *single* reply, not
+    a continuous stream — so `0x03` alone doesn't flip on realtime. Likely the start
+    command needs a **payload** (enable flag / sensor mask) and/or the PPG stream
+    only flows **while worn** (skin contact). Added `--start-data` and full-packet
+    hex logging to `ble_stream_PWT.py` to chase this.
+14. **← You are here.** Next: wear the band and run the stream tool (paired); if no
+    continuous flow, sweep start-command payloads.
 
 ---
 
@@ -345,28 +355,28 @@ sit down:
   (firmware 17.2.2.0, hardware harvard_r10).
 - Tooling for scan / explore / log / command / stream / sweep.
 
+**Done (new)**
+- **Pairing works** (Windows ConfirmOnly ceremony); the authenticated link lets
+  the band accept commands. Commands `0x01`–`0x04` return type-`0x30` replies.
+
 **Next**
-1. **Pair with the band (one time):**
+1. **Wear the band (snug, skin contact)** and try for a continuous stream:
    ```powershell
-   python ble_pair_PWT.py <ADDRESS>
+   python ble_stream_PWT.py <ADDRESS> --with-response --seconds 30
    ```
-   Accept any Windows pairing prompt. "already paired" is fine.
-2. **Re-sweep over the encrypted link, band held perfectly still** (so any DATA
-   response is from the command, not motion):
+   (Pairing persists, so `--pair` is optional now.) If DATA(04) floods with packets
+   while you hold still, that's the live sensor stream — send Claude the log.
+2. If it's still single replies, sweep the **start-command payload**:
    ```powershell
-   python ble_sweep_PWT.py <ADDRESS> --pair --with-response
+   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 01 --seconds 15
+   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 02 --seconds 15
    ```
-   Watch for the command id whose DATA(04) response *continues after the dwell*
-   (a real stream), vs. a one-off reply. Send Claude the `logs\sweep_*.jsonl`.
-3. Lock the start opcode into `ble_stream_PWT.py` and capture a real sensor stream
-   (wear the band, tight skin contact):
-   ```powershell
-   python ble_stream_PWT.py <ADDRESS> --pair --with-response --seconds 30
-   ```
-4. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
+   Also decode the `0x01`/`0x02` replies (likely battery / device info) to confirm
+   the command map — paste the full `logs\stream_*.jsonl`.
+3. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
    your actual resting heart rate, then lock in the accel / temp / SpO₂ offsets.
-5. Gesture recognition from the accelerometer stream.
-6. Port the verified protocol to C++ for the UE5 phase.
+4. Gesture recognition from the accelerometer stream.
+5. Port the verified protocol to C++ for the UE5 phase.
 
 ---
 
