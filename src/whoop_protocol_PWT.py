@@ -158,6 +158,31 @@ def parse_accel(data: bytes):
             "ts": tsval, "historical": historical}
 
 
+EVENT_PACKET_TYPE = 0x30   # discrete events on EVENT_CHAR (taps/motion/status)
+
+
+def parse_event(data: bytes):
+    """Parse a type-0x30 event packet off EVENT_CHAR_UUID (61080004).
+
+    Observed layout (payload, after unframing):
+        [0]    type (0x30)
+        [1]    sequence (increments per event)
+        [2]    report id / size hint
+        [3]    (usually 0x00)
+        [4:8]  timestamp, uint32 LE (device uptime ticks)
+        [8:]   event body (varies by report id)
+    The body is returned raw plus as int16 LE values to help spot motion fields.
+    """
+    import struct
+    p = unframe(data)
+    if p is None or len(p) < 8 or p[0] != EVENT_PACKET_TYPE:
+        return None
+    body = p[8:]
+    ints = [struct.unpack_from("<h", body, i)[0] for i in range(0, len(body) - 1, 2)]
+    return {"seq": p[1], "report": p[2], "ts": int.from_bytes(p[4:8], "little"),
+            "body": body.hex(), "ints": ints}
+
+
 def _self_test() -> None:
     """Reproduce the known-good reference packet exactly."""
     reference = bytes.fromhex("aa100057230423aa8ed469a96d0000005130fef3")

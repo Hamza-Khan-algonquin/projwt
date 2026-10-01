@@ -93,6 +93,7 @@ We drive it from Python.
 | `ble_pair_PWT.py` | Pair/bond with the band so it will accept our commands (encrypted link). |
 | `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
 | `ble_accel_PWT.py` | Find/stream the accelerometer (payload sweep, opcode sweep, live decode). |
+| `ble_events_PWT.py` | Capture & decode live `EVT(04)` events, tagged by gesture label. |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
@@ -201,11 +202,17 @@ branch `claude/peaceful-dirac-ko6o1i`.
     accelerometer is recorded to flash and retrieved as history; it does not appear
     to stream live over BLE via opcodes `0x01–0x1f`. Confirmed LIVE signals: HR+RR
     (type `0x28`, 1 Hz) and discrete events on `EVT(04)` (type `0x30`).
-20. **← You are here — fork for gesture control:**
-    - (a) Sweep higher opcodes `0x21–0x2f` (skip `0x20` = firmware) for a possible
-      live-raw / PPG mode we haven't found yet; or
-    - (b) Build gestures on the LIVE `EVT(04)` motion/tap events (and HR), accepting
-      that fine-grained live accel may not be exposed over BLE.
+20. **Swept `0x21–0x2f` (skipping `0x20` firmware) — no live accel.** Every opcode
+    returned only the baseline HR stream (type `0x28`); no `0x2f`, no new subtype, no
+    rate jump. **CONCLUSION (firmware 17.2.2.0): raw accelerometer is NOT exposed as
+    a live BLE stream anywhere in opcodes `0x01–0x2f`.** It exists only as historical
+    flash records (via `0x16`). Live BLE signals available: HR+RR (`0x28`, 1 Hz) and
+    discrete events on `EVT(04)` (`0x30`).
+21. **Design implication:** a smooth continuous "active-hold" wrist gesture isn't
+    possible from the band alone over BLE (no live orientation stream). Discrete
+    gestures (tap / double-tap / motion triggers) via `EVT(04)` are, plus live HR.
+22. **← You are here — path (b):** decode the live `EVT(04)` events (`ble_events_PWT.py`)
+    with labeled gesture captures, and build a discrete-gesture recogniser.
 
 ---
 
@@ -436,16 +443,22 @@ sit down:
   ~1 Hz type-`0x28` packets; decoded and verified against the owner's resting BPM.
 - **Accelerometer format decoded** — type-`0x2f` packets, X/Y/Z float32 (g).
 
+**Finding:** live raw accel is NOT available over BLE (swept `0x01–0x2f`). Accel is
+historical-only. So gesture control uses the live `EVT(04)` events + HR.
+
 **Next**
-1. **Confirm LIVE accel while moving** (tap the band awake first):
+1. **Capture labeled gestures** (tap the band awake first; one gesture per run,
+   repeat it the whole window):
    ```powershell
-   python ble_accel_PWT.py <ADDRESS> --start-data 01 --extra-cmd 0x16 --label tilt
+   python ble_events_PWT.py <ADDRESS> --label still     --seconds 20
+   python ble_events_PWT.py <ADDRESS> --label tap       --seconds 20
+   python ble_events_PWT.py <ADDRESS> --label doubletap --seconds 20
+   python ble_events_PWT.py <ADDRESS> --label flick     --seconds 20
+   python ble_events_PWT.py <ADDRESS> --label raise     --seconds 20
    ```
-   Tilt the wrist slowly; `[ACCEL] x/y/z |g|` lines should track gravity. If the
-   values only replay stored data and stop, try `--extra-cmd 0x13` (continuous).
-2. Once LIVE accel is confirmed, build `decode_accel_PWT.py` + a simple gesture
-   recogniser (tilt / flick / hold) on the X/Y/Z stream.
-3. Decode the HR `aux` field and any SpO₂ / skin-temp subtypes.
+   Send Claude the `logs\events_*.jsonl` files; we diff report-ids/fields per gesture.
+2. Build a discrete-gesture recogniser from the distinguishing event(s).
+3. Decode the HR `aux` field; decode historical accel (`0x2f`) for offline analysis.
 4. Port the verified protocol to C++ for the UE5 phase.
 
 **Windows gotchas (keep handy)**
