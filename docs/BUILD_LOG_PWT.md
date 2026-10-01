@@ -194,8 +194,18 @@ branch `claude/peaceful-dirac-ko6o1i`.
     "operation was canceled" wedge, and the band must be tapped awake right before
     running. Fixed a tool crash (formatting unknown packet types) and added live
     accel/HR decoding + `--extra-cmd`.
-19. **← You are here.** Capture LIVE accel while tilting the wrist; build the
-    gesture recogniser on the X/Y/Z stream.
+19. **Accel from `0x16` is HISTORICAL, not live.** Those `0x2f` packets carry a real
+    calendar timestamp (decoded: 2024-09-18), whereas live packets use device-uptime
+    ticks. Re-running `0x16` moving the wrist produced no new accel — `0x16`
+    downloads stored flash records. **Conclusion:** on fw 17.2.2.0, raw
+    accelerometer is recorded to flash and retrieved as history; it does not appear
+    to stream live over BLE via opcodes `0x01–0x1f`. Confirmed LIVE signals: HR+RR
+    (type `0x28`, 1 Hz) and discrete events on `EVT(04)` (type `0x30`).
+20. **← You are here — fork for gesture control:**
+    - (a) Sweep higher opcodes `0x21–0x2f` (skip `0x20` = firmware) for a possible
+      live-raw / PPG mode we haven't found yet; or
+    - (b) Build gestures on the LIVE `EVT(04)` motion/tap events (and HR), accepting
+      that fine-grained live accel may not be exposed over BLE.
 
 ---
 
@@ -292,8 +302,10 @@ Unlocked by probing opcodes `0x10–0x1f`. The accelerometer is reported as
 `python ble_accel_PWT.py <ADDR> --start-data 01 --extra-cmd 0x16 --label tilt`.
 
 > `type 0x32` packets seen alongside are firmware **debug-log text** (ASCII), not
-> sensor data. The `0x16` dump is labelled "Historical" — confirming LIVE accel is
-> the next step.
+> sensor data. **Important:** the `0x16` dump is HISTORICAL — these `0x2f` packets
+> carry a real calendar timestamp (2024-09-18), so the accel values are stored flash
+> records, not a live feed. Live raw accel has not been found over BLE on this
+> firmware (opcodes 0x01–0x1f); see §9 for the gesture-control fork.
 
 Captured **event** packet (32 bytes on `61080003`, protobuf body) for reference:
 ```
