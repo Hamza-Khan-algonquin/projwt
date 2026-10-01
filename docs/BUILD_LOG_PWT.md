@@ -90,6 +90,7 @@ We drive it from Python.
 | `ble_command_PWT.py` | Send one framed command and listen for the reply. |
 | `ble_stream_PWT.py` | **HELLO → START → watch data channel** for a continuous stream. |
 | `ble_sweep_PWT.py` | Sweep a range of command IDs to find which one wakes the data channel. |
+| `ble_pair_PWT.py` | Pair/bond with the band so it will accept our commands (encrypted link). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
 branch `claude/peaceful-dirac-ko6o1i`.
@@ -135,8 +136,24 @@ branch `claude/peaceful-dirac-ko6o1i`.
 9. **Concluded cmd `0x03` is not the real "start streaming" opcode** (the command
    IDs were always community guesses). Built `ble_sweep_PWT.py` to brute-force the
    correct opcode — the same empirical approach that cracked the CRC framing.
-10. **← You are here.** Next run: `ble_sweep_PWT.py` to find the opcode that wakes
-    the DATA channel, then build the decoder.
+10. **Swept command IDs (`ble_sweep_PWT.py`) — and learned two big things:**
+    - **The band ignores unauthenticated commands.** Write-*with*-response returned
+      `GATT Protocol Error: Insufficient Authentication` (ATT error 0x05 — the
+      command characteristic needs an **encrypted / paired link**).
+      Write-*without*-response (our default) doesn't error, but the band **silently
+      ignores it**. So *none of our commands had ever actually reached the band* —
+      every "reply" so far was the subscribe-triggered status beacon or physical
+      motion.
+    - **DATA(04) is currently a motion/tap event feed.** The DATA-channel packets
+      lined up with *tapping / shaking / putting the charger on*, not with any
+      command. They use our verified `0xAA` framing, **type `0x30`**, with an
+      incrementing sequence and a monotonic **timestamp** — i.e. timestamped
+      accelerometer/activity events (useful later for gesture detection).
+11. **Built `ble_pair_PWT.py`** and added `--pair` to the sweep/stream tools.
+    Pairing establishes the encrypted link so the band will honour commands.
+12. **← You are here.** Next: **pair**, then re-sweep **with the band held still**
+    so any DATA response is attributable to the command (not motion), find the real
+    start opcode, then build the decoder.
 
 ---
 
@@ -227,6 +244,28 @@ This is a **heartbeat/status** feed, not the per-sample sensor stream. The
 per-sample sensor data (PPG / accel / HR) is expected as ~96-byte packets on the
 **DATA channel `61080004`**, which is still silent — see §9 next steps.
 
+### 6.6 Authentication requirement (the key blocker)
+
+The command characteristic (`61080002`) requires an **encrypted/paired BLE
+link**. Evidence: write-with-response returns `GATT Protocol Error: Insufficient
+Authentication` (ATT error `0x05`). Write-without-response doesn't raise, but the
+band silently discards the write. **Therefore commands only take effect after we
+pair/bond** (`ble_pair_PWT.py`, or `--pair`). Until then the band only emits the
+status beacon and motion events, regardless of what we send.
+
+### 6.7 DATA(04) event packets (motion-triggered) — framing confirmed
+
+The DATA-channel packets observed so far are our `0xAA` frame with **type `0x30`**:
+
+```
+aa | len(2 LE) | crc8(len) | 30 | seq | .. | timestamp(uint32 LE) | .. | crc32
+```
+
+Example: `aa 10 00 57 30 24 0e 00 c8 87 e2 01 80 44 00 00 …`
+→ len=16, crc8 OK, type=0x30, seq=0x24, timestamp=`0x01e287c8` (monotonic).
+These fire on tap/shake/charger — accelerometer/activity events, not the
+continuous PPG stream we still need to unlock (via pairing + the right opcode).
+
 ---
 
 ## 7. Legal / attribution — do the referenced authors need to know?
@@ -275,15 +314,20 @@ sit down:
    ```powershell
    python gatt_explorer_PWT.py <ADDRESS>
    ```
-5. **Find the stream opcode** (current task — see §9):
+5. **Pair once** (only needed the first time, or after `--unpair`; the bond
+   persists across sessions):
    ```powershell
-   python ble_sweep_PWT.py <ADDRESS>
+   python ble_pair_PWT.py <ADDRESS>
+   ```
+6. **Find the stream opcode** (current task — see §9), band held still:
+   ```powershell
+   python ble_sweep_PWT.py <ADDRESS> --pair --with-response
    ```
    Once we know the right opcode, stream with:
    ```powershell
-   python ble_stream_PWT.py <ADDRESS> --seconds 30
+   python ble_stream_PWT.py <ADDRESS> --pair --with-response --seconds 30
    ```
-6. **Send Claude the newest file in `logs\`** so we can decode/continue.
+7. **Send Claude the newest file in `logs\`** so we can decode/continue.
 
 > If `bleak` is missing again (new machine): `python -m pip install bleak`.
 > If nothing is found in the scan: make sure the band is charged and near the PC,
@@ -302,15 +346,27 @@ sit down:
 - Tooling for scan / explore / log / command / stream / sweep.
 
 **Next**
-1. **Run `ble_sweep_PWT.py <ADDRESS>`** to find the command id that wakes the DATA
-   channel (61080004). Try `--with-response` and a `--data 01` payload if the
-   default range is silent. Send Claude the `logs\sweep_*.jsonl`.
-2. Once the start opcode is known, lock it into `ble_stream_PWT.py` and capture a
-   real sensor stream (wear the band, tight skin contact).
-3. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
+1. **Pair with the band (one time):**
+   ```powershell
+   python ble_pair_PWT.py <ADDRESS>
+   ```
+   Accept any Windows pairing prompt. "already paired" is fine.
+2. **Re-sweep over the encrypted link, band held perfectly still** (so any DATA
+   response is from the command, not motion):
+   ```powershell
+   python ble_sweep_PWT.py <ADDRESS> --pair --with-response
+   ```
+   Watch for the command id whose DATA(04) response *continues after the dwell*
+   (a real stream), vs. a one-off reply. Send Claude the `logs\sweep_*.jsonl`.
+3. Lock the start opcode into `ble_stream_PWT.py` and capture a real sensor stream
+   (wear the band, tight skin contact):
+   ```powershell
+   python ble_stream_PWT.py <ADDRESS> --pair --with-response --seconds 30
+   ```
+4. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
    your actual resting heart rate, then lock in the accel / temp / SpO₂ offsets.
-4. Once decoding is solid: gesture recognition from the accelerometer stream.
-5. Port the verified protocol to C++ for the UE5 phase.
+5. Gesture recognition from the accelerometer stream.
+6. Port the verified protocol to C++ for the UE5 phase.
 
 ---
 

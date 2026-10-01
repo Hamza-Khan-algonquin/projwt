@@ -58,7 +58,8 @@ async def _write(client: BleakClient, packet: bytes, with_response: bool, tag: s
 
 
 async def run(address: str, seconds: float, with_response: bool,
-              send_hello: bool, hello_cmd: int, start_cmd: int, stop_cmd: int) -> None:
+              send_hello: bool, hello_cmd: int, start_cmd: int, stop_cmd: int,
+              do_pair: bool = False) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"stream_{stamp}_PWT.jsonl"
@@ -66,7 +67,13 @@ async def run(address: str, seconds: float, with_response: bool,
     data_packets = 0
 
     async with BleakClient(address) as client:
-        print(f"Connected: {client.is_connected}\n")
+        print(f"Connected: {client.is_connected}")
+        if do_pair:
+            try:
+                print(f"pairing... pair() -> {await client.pair()}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"pair() failed/already paired: {exc}")
+        print()
         log_file = log_path.open("w", encoding="utf-8")
 
         def make_handler(uuid: str):
@@ -150,7 +157,9 @@ def main() -> None:
     p.add_argument("address", help="BLE address from ble_scanner_PWT.py")
     p.add_argument("--seconds", type=float, default=30.0, help="listen duration (default 30)")
     p.add_argument("--with-response", action="store_true",
-                   help="write-with-response (default: write-without-response)")
+                   help="write-with-response (needed once paired; surfaces real errors)")
+    p.add_argument("--pair", action="store_true",
+                   help="pair/bond first so the encrypted link accepts commands")
     p.add_argument("--no-hello", action="store_true", help="skip the HELLO handshake")
     p.add_argument("--hello-cmd", type=_parse_int, default=wp.CMD_HELLO)
     p.add_argument("--start-cmd", type=_parse_int, default=wp.CMD_RT_HR_ON)
@@ -159,7 +168,8 @@ def main() -> None:
 
     try:
         asyncio.run(run(args.address, args.seconds, args.with_response,
-                        not args.no_hello, args.hello_cmd, args.start_cmd, args.stop_cmd))
+                        not args.no_hello, args.hello_cmd, args.start_cmd, args.stop_cmd,
+                        args.pair))
     except KeyboardInterrupt:
         print("\nStopped by user.")
 
