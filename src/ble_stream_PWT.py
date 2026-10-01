@@ -97,10 +97,18 @@ async def run(address: str, seconds: float, with_response: bool,
                     if not client.is_connected:
                         raise RuntimeError("connect returned but link is down")
                     # Subscribe IMMEDIATELY — the band hangs up a connection that
-                    # sits idle for even ~1s after connect.
+                    # sits idle for even ~1s after connect. Tolerate per-channel
+                    # failures; only treat "nothing subscribed" as a drop.
+                    subscribed = 0
                     for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
-                        await client.start_notify(uuid, make_handler(uuid))
-                    print("subscribed to all channels\n")
+                        try:
+                            await client.start_notify(uuid, make_handler(uuid))
+                            subscribed += 1
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"  (subscribe {wp.cname(uuid)} failed: {exc})")
+                    if subscribed == 0:
+                        raise RuntimeError("no channels subscribed (link unstable)")
+                    print(f"subscribed to {subscribed} channels\n")
                     if do_pair:
                         try:
                             print(f"pairing... pair() -> {await client.pair()}")
@@ -147,10 +155,13 @@ async def run(address: str, seconds: float, with_response: bool,
             except Exception as exc:  # noqa: BLE001
                 print(f"\nattempt {attempt} dropped: {exc}")
                 if attempt < 4:
-                    print("Tap the band to wake it; reconnecting in 3s ...")
-                    await asyncio.sleep(3)
+                    print("Reconnecting in 5s (keep the band awake) ...")
+                    await asyncio.sleep(5)
                 else:
-                    print("Giving up after repeated drops — re-run once the band is awake.")
+                    print("Giving up after repeated drops.\n"
+                          "If this was 'operation was canceled', the Windows Bluetooth\n"
+                          "stack is wedged — toggle Bluetooth OFF then ON, tap the band,\n"
+                          "and run ble_sweep_PWT.py first to re-establish the link.")
     finally:
         log_file.close()
 
