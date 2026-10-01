@@ -90,9 +90,9 @@ async def run(address: str, seconds: float, with_response: bool,
                     if len(payload) >= 3:
                         hr = int.from_bytes(payload[1:3], "little") / 100.0
                     marker = f"  ~HR≈{hr:.0f}" if hr and 20 < hr < 250 else ""
-                    print(f"  <-[DATA] len={len(payload)}{marker}  {payload[:16].hex(' ')}...")
+                    print(f"  <-[DATA(04)] len={len(payload)}{marker}  {payload[:16].hex(' ')}...")
                 elif per_char[uuid] <= 4:  # don't spam for chatty non-data chars
-                    print(f"  <-{uuid[-8:]} len={len(payload)}  {payload.hex(' ')}")
+                    print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
             return handler
 
         for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
@@ -134,7 +134,7 @@ async def run(address: str, seconds: float, with_response: bool,
     print(f"total packets: {total}")
     for uuid, n in per_char.most_common():
         flag = "  <-- DATA CHANNEL" if uuid == wp.DATA_CHAR_UUID else ""
-        print(f"  {uuid[-8:]}: {n}{flag}")
+        print(f"  {wp.cname(uuid)}: {n}{flag}")
     if data_packets:
         print(f"\nSUCCESS: {data_packets} packets on the data channel. "
               "Send Claude this log to build the decoder.")

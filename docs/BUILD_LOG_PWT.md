@@ -3,7 +3,7 @@
 **Project:** ProjWT (personal portfolio project — private)
 **Owner:** Hamza Khan
 **Status:** Phase 1–2 (BLE access + protocol) — in progress
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-01
 
 > **PRIVATE / PORTFOLIO.** This document and the whole ProjWT repo are a
 > personal portfolio piece and are not to be shared publicly.
@@ -89,6 +89,7 @@ We drive it from Python.
 | `whoop_protocol_PWT.py` | **The verified protocol core** — framing, CRCs, command IDs, UUIDs. |
 | `ble_command_PWT.py` | Send one framed command and listen for the reply. |
 | `ble_stream_PWT.py` | **HELLO → START → watch data channel** for a continuous stream. |
+| `ble_sweep_PWT.py` | Sweep a range of command IDs to find which one wakes the data channel. |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
 branch `claude/peaceful-dirac-ko6o1i`.
@@ -121,8 +122,21 @@ branch `claude/peaceful-dirac-ko6o1i`.
    **HELLO handshake (cmd `0x05`) first**, then START; the continuous data
    arrives as ~96-byte packets on the **data** channel (`61080004`). We had
    skipped the hello. Built `ble_stream_PWT.py` to do the full sequence.
-8. **← You are here.** Next run: `ble_stream_PWT.py` to capture data-channel
-   packets, then build the decoder.
+8. **Ran the full HELLO → START sequence (`ble_stream_PWT.py`).** The band came
+   alive — **15 packets in 30s** — but **all on the EVENT channel (61080003)**, a
+   repeating ~2s **status beacon**, *not* the 96-byte sensor stream on the DATA
+   channel (61080004, which stayed silent). Two outcomes:
+   - **Decoded the beacon's identity fields** (see §6.5): codename `boylston`,
+     firmware **17.2.2.0**, hardware **harvard_r10**.
+   - **Found & fixed a display bug:** the tools labelled channels by the *last* 8
+     UUID chars, but every WHOOP characteristic ends in `…b0f8dcc6`, so all
+     channels printed the same label. They differ in the *first* block
+     (`6108000x`); labelling now uses a clear name map (`EVENT(03)`, `DATA(04)`…).
+9. **Concluded cmd `0x03` is not the real "start streaming" opcode** (the command
+   IDs were always community guesses). Built `ble_sweep_PWT.py` to brute-force the
+   correct opcode — the same empirical approach that cracked the CRC framing.
+10. **← You are here.** Next run: `ble_sweep_PWT.py` to find the opcode that wakes
+    the DATA channel, then build the decoder.
 
 ---
 
@@ -197,6 +211,22 @@ Captured **event** packet (32 bytes on `61080003`, protobuf body) for reference:
 aa 1c 00 ab 30 06 1d 00 2d 48 e1 01 20 1a 0c 00 32 01 00 00 02 00 42 02 0b 00 01 00 8c 60 8f ce
 ```
 
+### 6.5 Status beacon (EVENT channel `61080003`) — decoded identity
+
+When we subscribe, the band emits a ~97-byte **status beacon every ~2 seconds**
+on the EVENT channel. It is a protobuf body (starts `08 02 a6 02 …`) carrying the
+device identity plus a changing counter near the tail. Decoded ASCII fields:
+
+| Field | Value |
+|---|---|
+| Codename | `boylston` |
+| Firmware / version | `17.2.2.0` |
+| Hardware revision | `harvard_r10` |
+
+This is a **heartbeat/status** feed, not the per-sample sensor stream. The
+per-sample sensor data (PPG / accel / HR) is expected as ~96-byte packets on the
+**DATA channel `61080004`**, which is still silent — see §9 next steps.
+
 ---
 
 ## 7. Legal / attribution — do the referenced authors need to know?
@@ -245,7 +275,11 @@ sit down:
    ```powershell
    python gatt_explorer_PWT.py <ADDRESS>
    ```
-5. **Start streaming** (wear the band, tight skin contact):
+5. **Find the stream opcode** (current task — see §9):
+   ```powershell
+   python ble_sweep_PWT.py <ADDRESS>
+   ```
+   Once we know the right opcode, stream with:
    ```powershell
    python ble_stream_PWT.py <ADDRESS> --seconds 30
    ```
@@ -263,14 +297,20 @@ sit down:
 - Physical bring-up, BLE discovery, full GATT map.
 - Packet framing reverse-engineered **and verified both ways** (we sent a command
   and the real band returned a valid CRC-checked reply).
-- Tooling for scan / explore / log / command / stream.
+- Confirmed two-way comms live; decoded the device-identity status beacon
+  (firmware 17.2.2.0, hardware harvard_r10).
+- Tooling for scan / explore / log / command / stream / sweep.
 
 **Next**
-1. Run `ble_stream_PWT.py` and capture **data-channel (61080004)** packets.
-2. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
+1. **Run `ble_sweep_PWT.py <ADDRESS>`** to find the command id that wakes the DATA
+   channel (61080004). Try `--with-response` and a `--data 01` payload if the
+   default range is silent. Send Claude the `logs\sweep_*.jsonl`.
+2. Once the start opcode is known, lock it into `ble_stream_PWT.py` and capture a
+   real sensor stream (wear the band, tight skin contact).
+3. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
    your actual resting heart rate, then lock in the accel / temp / SpO₂ offsets.
-3. Once decoding is solid: gesture recognition from the accelerometer stream.
-4. Port the verified protocol to C++ for the UE5 phase.
+4. Once decoding is solid: gesture recognition from the accelerometer stream.
+5. Port the verified protocol to C++ for the UE5 phase.
 
 ---
 

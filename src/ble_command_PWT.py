@@ -59,7 +59,7 @@ async def run(address: str, cmd: int, data: bytes, seq: int,
                 }
                 log_file.write(json.dumps(rec) + "\n")
                 log_file.flush()
-                print(f"  <- {uuid[-8:]}  {payload.hex(' ')}")
+                print(f"  <- {wp.cname(uuid)}  {payload.hex(' ')}")
             return handler
 
         # subscribe to every notify characteristic we know about

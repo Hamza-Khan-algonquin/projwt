@@ -21,12 +21,28 @@ import zlib
 # differently / off-by-one — trust the scan.)
 SERVICE_UUID = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
 CMD_CHAR_UUID = "61080002-8d6d-82b8-614a-1c8cb0f8dcc6"          # write / write-no-response
-EVENT_CHAR_UUID = "61080003-8d6d-82b8-614a-1c8cb0f8dcc6"        # events / command replies
+EVENT_CHAR_UUID = "61080003-8d6d-82b8-614a-1c8cb0f8dcc6"        # events / status beacon
 DATA_CHAR_UUID = "61080004-8d6d-82b8-614a-1c8cb0f8dcc6"         # real-time data (96-byte packets)
 DIAG_CHAR_UUID = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"         # diagnostics
-NOTIFY_CHARS = [EVENT_CHAR_UUID, DATA_CHAR_UUID, DIAG_CHAR_UUID,
-                "61080007-8d6d-82b8-614a-1c8cb0f8dcc6"]
+SEVEN_CHAR_UUID = "61080007-8d6d-82b8-614a-1c8cb0f8dcc6"
+NOTIFY_CHARS = [EVENT_CHAR_UUID, DATA_CHAR_UUID, DIAG_CHAR_UUID, SEVEN_CHAR_UUID]
 HR_CHAR_UUID = "00002a37-0000-1000-8000-00805f9b34fb"          # standard Heart Rate
+
+# Short, UNAMBIGUOUS channel labels. NOTE: all WHOOP custom chars end in
+# "...b0f8dcc6", so never label by the last bytes — they differ in the FIRST block.
+CHAR_NAMES = {
+    CMD_CHAR_UUID: "CMD(02)",
+    EVENT_CHAR_UUID: "EVENT(03)",
+    DATA_CHAR_UUID: "DATA(04)",
+    DIAG_CHAR_UUID: "DIAG(05)",
+    SEVEN_CHAR_UUID: "CH(07)",
+    HR_CHAR_UUID: "HR(2a37)",
+}
+
+
+def cname(uuid: str) -> str:
+    """Return a short, unambiguous label for a characteristic UUID."""
+    return CHAR_NAMES.get(uuid.lower(), uuid[:8])
 
 # --- packet types ---
 TYPE_COMMAND = 0x23
