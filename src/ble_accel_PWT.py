@@ -84,6 +84,7 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
     log_path = LOG_DIR / f"{tag}_{stamp}_PWT.jsonl"
     state = {"key": None}
     combos: dict[str, Counter] = {}
+    accel_seen: dict[str, set] = {}   # strategy -> {"LIVE","HIST"}
     log_file = log_path.open("w", encoding="utf-8")
 
     def make_handler(uuid):
@@ -99,6 +100,9 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
             combo = f"{wp.cname(uuid)}/type{t:#04x}.{s:#04x}" if t is not None else wp.cname(uuid)
             if key is not None:
                 combos.setdefault(key, Counter())[combo] += 1
+                ac0 = wp.parse_accel(frame)
+                if ac0:
+                    accel_seen.setdefault(key, set()).add("HIST" if ac0["historical"] else "LIVE")
             live = not mode_sweep and not mode_cmd
             if live and uuid == wp.DATA_CHAR_UUID:
                 ac = wp.parse_accel(frame)
@@ -160,10 +164,23 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
                 total = sum(per.values())
                 rate = total / dwell
                 summary = ", ".join(f"{k}={v}" for k, v in per.most_common()) or "(silence)"
-                flag = "   <<< RATE JUMP / check subtype" if rate > 3.0 else ""
+                kinds = accel_seen.get(f"{cmd:02x}", set())
+                if "LIVE" in kinds:
+                    flag = "   <<< LIVE ACCEL !!!"
+                elif "HIST" in kinds:
+                    flag = "   (accel, but HISTORICAL dump)"
+                elif rate > 3.0:
+                    flag = "   <<< rate jump / check subtype"
+                else:
+                    flag = ""
                 print(f"cmd 0x{cmd:02x} -> {rate:4.1f}/s  {summary}{flag}")
             state["key"] = None
             await send(wp.CMD_RT_HR_OFF)
+            live_hits = [c for c, k in accel_seen.items() if "LIVE" in k]
+            if live_hits:
+                print("\nLIVE accelerometer from opcode(s): " + ", ".join("0x" + c for c in live_hits))
+            else:
+                print("\nNo LIVE accel in this range (any 0x2f packets were historical dumps).")
         elif mode_sweep:
             print("Sweeping START payloads — watching for NEW subtypes / higher rate.")
             print("(Hold still so extra packets mean the payload, not your motion.)\n")

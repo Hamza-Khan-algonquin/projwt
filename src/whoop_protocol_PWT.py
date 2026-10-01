@@ -150,7 +150,12 @@ def parse_accel(data: bytes):
         return None
     x, y, z = struct.unpack_from("<fff", p, 36)
     mag = (x * x + y * y + z * z) ** 0.5
-    return {"sub": p[1], "x": x, "y": y, "z": z, "mag": mag}
+    # a uint32 near the header is a unix timestamp for HISTORICAL records; live
+    # packets carry device-uptime ticks (a small number) instead.
+    tsval = struct.unpack_from("<I", p, 7)[0] if len(p) >= 11 else 0
+    historical = 1_500_000_000 < tsval < 2_200_000_000  # ~2017..2039 in unix secs
+    return {"sub": p[1], "x": x, "y": y, "z": z, "mag": mag,
+            "ts": tsval, "historical": historical}
 
 
 def _self_test() -> None:
