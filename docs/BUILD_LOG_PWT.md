@@ -157,29 +157,44 @@ branch `claude/peaceful-dirac-ko6o1i`.
     DATA(04) (confirmed: band untouched, timestamps incrementing
     `0x01e28a92 → …95 → …98 → …9c`). cmd `0x0b` was a physical tap. **Two-way
     authenticated command/response is working.**
-13. **Open item: continuous streaming.** Each command returns a *single* reply, not
-    a continuous stream — so `0x03` alone doesn't flip on realtime. Likely the start
-    command needs a **payload** (enable flag / sensor mask) and/or the PPG stream
-    only flows **while worn** (skin contact). Added `--start-data` and full-packet
-    hex logging to `ble_stream_PWT.py` to chase this.
-14. **← You are here.** Next: wear the band and run the stream tool (paired); if no
-    continuous flow, sweep start-command payloads.
+13. **Found the real cause — we were watching the WRONG channel.** Comparing the
+    reference (`christianmeurer/whoop-reader`) char constants against our own scan
+    showed an **off-by-one**: the reference assumes the write char is `…0001`, but on
+    our band `…0001` is the *service* and the write char is `…0002`, so every
+    characteristic is shifted +1. Aligning by role (write + 4 notify, in handle
+    order) means **the real-time sensor stream is on `61080005`** — the channel we
+    had dismissed as "diagnostics". What we called "DATA(04)" is actually the *event*
+    channel (hence one-off command acks + taps). See §6.1 for the corrected map.
+    Also: the reference's start sequence is identical to ours (subscribe → HELLO 0x05
+    → START 0x03, no payload, response=True), so the opcode was never wrong — the
+    **channel** was. And every test so far was **off-wrist** (WHOOP gates the PPG/HR
+    stream on skin contact).
+14. **← You are here.** Next: fixed the channel map (DATA = `61080005`); **wear the
+    band** and stream, watching `DATA(05)` for 96-byte packets.
 
 ---
 
 ## 6. The verified protocol (the important part)
 
-### 6.1 GATT map (from our own scan — authoritative)
+### 6.1 GATT map (from our own scan — authoritative, roles corrected)
 
-- **Service:** `61080001-8d6d-82b8-614a-1c8cb0f8dcc6`
-- **Command (write):** `61080002-…` — where we send commands.
-- **Event / replies (notify):** `61080003-…` — status/report packets.
-- **Data (notify):** `61080004-…` — real-time sensor packets (~96 bytes).
-- **Diagnostics (notify):** `61080005-…`
-- **Extra (notify):** `61080007-…`
-- **Standard Heart Rate (notify):** `00002a37-0000-1000-8000-00805f9b34fb`
+Our band has the **service** at `…0001`, so the characteristics are shifted +1
+versus community write-ups that assume the *write* char is `…0001`. Mapping by
+role (write + 4 notify, in handle order):
 
-> Some public repos label these UUIDs off-by-one. **Our scan wins.**
+| UUID (first block) | Role | Notes |
+|---|---|---|
+| `61080001` | **Service** | custom GATT service (not a characteristic) |
+| `61080002` | **Command (write)** | where we send framed commands |
+| `61080003` | **Response / status** | command responses + the ~2s status beacon |
+| `61080004` | **Events** | async events — command acks, tap/motion (type `0x30`) |
+| `61080005` | **DATA — real-time stream** | the 96-byte sensor packets live here |
+| `61080007` | **Diagnostics** | |
+| `00002a37` | Standard Heart Rate | standard BLE HRM characteristic |
+
+> We originally mis-labelled `61080004` as "data" and `61080005` as "diagnostics"
+> (by matching the reference's numbers instead of its roles). The +1 shift means
+> **the real sensor stream is on `61080005`.** Corrected in `whoop_protocol_PWT.py`.
 
 ### 6.2 Packet framing — **empirically verified**
 
@@ -360,19 +375,17 @@ sit down:
   the band accept commands. Commands `0x01`–`0x04` return type-`0x30` replies.
 
 **Next**
-1. **Wear the band (snug, skin contact)** and try for a continuous stream:
+1. **Wear the band (snug, tight skin contact)** and stream — now watching the
+   corrected channel `DATA(05)` = `61080005`:
    ```powershell
    python ble_stream_PWT.py <ADDRESS> --with-response --seconds 30
    ```
-   (Pairing persists, so `--pair` is optional now.) If DATA(04) floods with packets
-   while you hold still, that's the live sensor stream — send Claude the log.
-2. If it's still single replies, sweep the **start-command payload**:
+   (Pairing persists, so `--pair` is optional now.) If `DATA(05)` floods with ~96-byte
+   packets while you hold still, that's the live sensor stream — send Claude the log.
+2. If still quiet, try a start payload and/or longer listen:
    ```powershell
-   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 01 --seconds 15
-   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 02 --seconds 15
+   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 01 --seconds 20
    ```
-   Also decode the `0x01`/`0x02` replies (likely battery / device info) to confirm
-   the command map — paste the full `logs\stream_*.jsonl`.
 3. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
    your actual resting heart rate, then lock in the accel / temp / SpO₂ offsets.
 4. Gesture recognition from the accelerometer stream.

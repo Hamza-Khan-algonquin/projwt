@@ -92,7 +92,7 @@ async def run(address: str, seconds: float, with_response: bool,
                 log_file.flush()
                 if is_data:
                     data_packets += 1
-                    print(f"  <-[DATA(04)] len={len(payload)}  {payload.hex(' ')}")
+                    print(f"  <-[DATA(05)] len={len(payload)}  {payload.hex(' ')}")
                 elif per_char[uuid] <= 6:  # don't spam for chatty non-data chars
                     print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
             return handler

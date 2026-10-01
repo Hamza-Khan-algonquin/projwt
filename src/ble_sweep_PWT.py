@@ -81,8 +81,8 @@ async def run(address: str, start: int, end: int, dwell: float, data: bytes,
                     counts.setdefault(cmd, Counter())[uuid] += 1
                     if uuid == wp.DATA_CHAR_UUID and cmd not in hits:
                         hits.append(cmd)
-                        print(f"  *** DATA(04) RESPONDED to cmd 0x{cmd:02x} !!! "
-                              f"len={len(payload)} {payload[:16].hex(' ')}...")
+                        print(f"  *** DATA(05) RESPONDED to cmd 0x{cmd:02x} !!! "
+                              f"len={len(payload)} {payload.hex(' ')}")
             return handler
 
         for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
