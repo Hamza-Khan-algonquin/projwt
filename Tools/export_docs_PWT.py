@@ -162,11 +162,19 @@ def render_pdf(blocks, out_path: Path) -> None:
                            spaceAfter=6)
 
     def inline(text: str) -> str:
-        text = escape(text)
-        text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-        text = re.sub(r"`(.+?)`", r'<font face="Courier">\1</font>', text)
-        text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<link href="\2"><u>\1</u></link>', text)
-        return text
+        # Tokenize on code spans FIRST so bold/link markup can never cross a code
+        # boundary (reportlab's mini-parser rejects overlapping <b>/<font> tags).
+        out = []
+        for part in re.split(r"(`[^`]+`)", text):
+            if part.startswith("`") and part.endswith("`") and len(part) > 1:
+                out.append(f'<font face="Courier">{escape(part[1:-1])}</font>')
+            else:
+                seg = escape(part)
+                seg = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", seg)
+                seg = re.sub(r"\[(.+?)\]\((.+?)\)", r'<link href="\2"><u>\1</u></link>', seg)
+                seg = seg.replace("**", "")  # drop any unmatched bold markers
+                out.append(seg)
+        return "".join(out)
 
     hmap = {"h1": h1, "h2": h2, "h3": h3, "h4": h3, "h5": h3, "h6": h3}
     flow = []

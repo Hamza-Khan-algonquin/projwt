@@ -77,7 +77,7 @@ async def _keepalive_listen(client, seconds):
 
 
 async def run(address, mode_sweep, start_data, seconds, label, with_response,
-              mode_cmd=False, cmd_lo=0x10, cmd_hi=0x1f):
+              mode_cmd=False, cmd_lo=0x10, cmd_hi=0x1f, extra_cmd=None):
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     tag = "cmdsweep" if mode_cmd else ("sweep" if mode_sweep else f"accel_{label}")
@@ -101,12 +101,19 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
                 combos.setdefault(key, Counter())[combo] += 1
             live = not mode_sweep and not mode_cmd
             if live and uuid == wp.DATA_CHAR_UUID:
+                ac = wp.parse_accel(frame)
                 rt = wp.parse_rt(frame)
-                if rt:
+                if ac:
+                    print(f"  [ACCEL] x={ac['x']:+.3f} y={ac['y']:+.3f} "
+                          f"z={ac['z']:+.3f}  |{ac['mag']:.2f}g|")
+                elif rt:
                     rr = (" RR=" + ",".join(map(str, rt["rr"])) + "ms") if rt["rr"] else ""
                     print(f"  [HR] {rt['hr']} bpm{rr}")
-                else:
-                    print(f"  [?{s:#04x}] {frame.hex(' ')}{accel_guess(frame)}")
+                elif t == 0x32:
+                    pass  # firmware debug-log text — ignore
+                elif t is not None:
+                    print(f"  [type{t:#04x}.{s:#04x}] {frame[:20].hex(' ')}...")
+                # else: unframeable packet — skip silently (no more crashes)
             elif live and uuid == wp.EVENT_CHAR_UUID:
                 print(f"  [EVT] {frame.hex(' ')}")
         return handler
@@ -124,6 +131,14 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
                 raise
         await send(wp.CMD_HELLO)
         await asyncio.sleep(0.8)
+
+        # Report battery up front (standard Battery Level char) so a flaky/low
+        # band is obvious before we interpret any sweep results.
+        try:
+            val = await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)
+            print(f"Battery: {val[0]}%\n" if val else "Battery: (no data)\n")
+        except Exception as exc:  # noqa: BLE001
+            print(f"Battery: (read failed: {exc})\n")
 
         if mode_cmd:
             print("HR on (0x03 01); sweeping extra opcodes 0x%02x-0x%02x for a raw/accel"
@@ -174,10 +189,14 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
             state["key"] = None
             await send(wp.CMD_RT_HR_OFF)
         else:
-            print(f"START 0x03 {start_data.hex()} ; streaming {seconds:.0f}s — "
-                  f"MOVE YOUR WRIST (label='{label}') and watch which bytes swing.\n")
+            extra = f" + extra 0x{extra_cmd:02x}" if extra_cmd is not None else ""
+            print(f"START 0x03 {start_data.hex()}{extra} ; streaming {seconds:.0f}s — "
+                  f"MOVE YOUR WRIST (label='{label}').\n")
             state["key"] = "stream"
             await send(wp.CMD_RT_HR_ON, start_data)
+            await asyncio.sleep(0.5)
+            if extra_cmd is not None:
+                await send(extra_cmd)
             await _keepalive_listen(client, seconds)
             await send(wp.CMD_RT_HR_OFF)
 
@@ -225,6 +244,8 @@ def main() -> None:
                    help="keep HR on and sweep extra opcodes (default 0x10-0x1f) for a raw/accel stream")
     p.add_argument("--cmd-start", type=lambda x: int(x, 0), default=0x10)
     p.add_argument("--cmd-end", type=lambda x: int(x, 0), default=0x1f)
+    p.add_argument("--extra-cmd", type=lambda x: int(x, 0), default=None,
+                   help="in live mode, send this extra command after START (e.g. 0x13)")
     p.add_argument("--no-response", action="store_true", help="use write-without-response")
     args = p.parse_args()
 
@@ -234,7 +255,7 @@ def main() -> None:
     try:
         asyncio.run(run(args.address, mode_sweep, start_data, args.seconds,
                         args.label, not args.no_response,
-                        mode_cmd, args.cmd_start, args.cmd_end))
+                        mode_cmd, args.cmd_start, args.cmd_end, args.extra_cmd))
     except KeyboardInterrupt:
         print("\nStopped by user.")
 

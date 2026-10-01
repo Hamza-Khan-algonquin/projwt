@@ -92,6 +92,7 @@ We drive it from Python.
 | `ble_sweep_PWT.py` | Sweep a range of command IDs to find which one wakes the data channel. |
 | `ble_pair_PWT.py` | Pair/bond with the band so it will accept our commands (encrypted link). |
 | `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
+| `ble_accel_PWT.py` | Find/stream the accelerometer (payload sweep, opcode sweep, live decode). |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
@@ -180,8 +181,21 @@ branch `claude/peaceful-dirac-ko6o1i`.
     intervals**. Decoded and verified: one packet reported HR 76 with a single RR of
     789 ms, and 60000/789 = 76.0 exactly. Captured HR climbing 67→78 bpm with RR
     ~740–820 ms. Built `decode_realtime_PWT.py` to decode captures to HR/RR/CSV.
-16. **← You are here.** Validate HR against a manual pulse, then chase the
-    accelerometer stream (likely another subtype / the event channel) for gestures.
+16. HR validated against the owner's real resting BPM — decode confirmed.
+17. **ACCELEROMETER FORMAT FOUND.** Probing opcodes `0x10–0x1f` (`ble_accel_PWT.py
+    --cmd-sweep`) unlocked a high-rate burst of **96-byte** `type 0x2f` **packets** on
+    DATA(05). Decoded: **accelerometer X/Y/Z as three float32 in g units** at
+    payload offset 36 (a second copy at 52), e.g. a rest vector
+    `(-0.125, 0.366, 0.934)` → magnitude **1.01 g** (gravity). The same window also
+    emitted firmware **debug-log text** (`type 0x32`) and the dump was labelled
+    "Historical Dump" — so `0x16` downloads STORED data. Next: confirm the same
+    `0x2f` float format arrives LIVE while moving the wrist.
+18. **Op notes:** Windows BLE needs a Bluetooth off/on toggle to recover from the
+    "operation was canceled" wedge, and the band must be tapped awake right before
+    running. Fixed a tool crash (formatting unknown packet types) and added live
+    accel/HR decoding + `--extra-cmd`.
+19. **← You are here.** Capture LIVE accel while tilting the wrist; build the
+    gesture recogniser on the X/Y/Z stream.
 
 ---
 
@@ -260,6 +274,26 @@ Decoder: `python decode_realtime_PWT.py <logfile>`.
 
 > This replaces the earlier *tentative* 96-byte layout from the reference — our
 > firmware streams these compact 28-byte HR/RR packets instead.
+
+### 6.8 Accelerometer packet — type `0x2f` (96 bytes, on `61080005`)
+
+Unlocked by probing opcodes `0x10–0x1f`. The accelerometer is reported as
+**float32 (little-endian), in g units**:
+
+| Payload bytes | Field |
+|---|---|
+| `[0]` | packet type (`0x2f`) |
+| `[1]` | subtype (`0x0c`) |
+| `[36:40] [40:44] [44:48]` | **accel X / Y / Z** — float32, g units |
+| `[52:64]` | second X/Y/Z copy (filtered vs raw) |
+
+**Verified:** a rest packet decoded to `(-0.125, 0.366, 0.934)`, magnitude **1.01 g**
+(gravity). Parser: `whoop_protocol_PWT.parse_accel()`; live view:
+`python ble_accel_PWT.py <ADDR> --start-data 01 --extra-cmd 0x16 --label tilt`.
+
+> `type 0x32` packets seen alongside are firmware **debug-log text** (ASCII), not
+> sensor data. The `0x16` dump is labelled "Historical" — confirming LIVE accel is
+> the next step.
 
 Captured **event** packet (32 bytes on `61080003`, protobuf body) for reference:
 ```
@@ -387,22 +421,24 @@ sit down:
 - **Pairing works** (Windows ConfirmOnly ceremony); authenticated link accepts commands.
 - **Windows idle-drop solved** with a Battery-Level-read keepalive.
 - **Real-time HR + RR streaming works** — `START = 0x03 01`, data on `DATA(05)` as
-  ~1 Hz type-`0x28` packets; decoded and verified.
+  ~1 Hz type-`0x28` packets; decoded and verified against the owner's resting BPM.
+- **Accelerometer format decoded** — type-`0x2f` packets, X/Y/Z float32 (g).
 
 **Next**
-1. **Watch your live heart rate** (wear the band, snug):
+1. **Confirm LIVE accel while moving** (tap the band awake first):
    ```powershell
-   python ble_stream_PWT.py <ADDRESS> --with-response --seconds 30
+   python ble_accel_PWT.py <ADDRESS> --start-data 01 --extra-cmd 0x16 --label tilt
    ```
-   It now prints `HR=NN bpm RR=...ms`. Sanity-check HR against a manual pulse count.
-2. Decode any saved capture:
-   ```powershell
-   python decode_realtime_PWT.py ..\logs\stream_YYYYMMDD_HHMMSS_PWT.jsonl --csv hr.csv
-   ```
-3. Decode the `aux` field (`[6:8]`) and hunt the **accelerometer** stream (likely
-   another `0x28` subtype or the event channel) — needed for gesture control.
-4. Also decode SpO₂ / skin-temp metrics if they appear as other subtypes.
-5. Port the verified protocol to C++ for the UE5 phase.
+   Tilt the wrist slowly; `[ACCEL] x/y/z |g|` lines should track gravity. If the
+   values only replay stored data and stop, try `--extra-cmd 0x13` (continuous).
+2. Once LIVE accel is confirmed, build `decode_accel_PWT.py` + a simple gesture
+   recogniser (tilt / flick / hold) on the X/Y/Z stream.
+3. Decode the HR `aux` field and any SpO₂ / skin-temp subtypes.
+4. Port the verified protocol to C++ for the UE5 phase.
+
+**Windows gotchas (keep handy)**
+- "operation was canceled by the user" / repeated drops → toggle Bluetooth OFF/ON.
+- Tap the band awake immediately before running any script.
 
 ---
 

@@ -67,6 +67,7 @@ CMD_HELLO = 0x05           # handshake / keep-alive (send this FIRST)
 # ~1 Hz type-0x28 packets.
 RT_START_PAYLOAD = bytes([0x01])
 RT_PACKET_TYPE = 0x28
+ACCEL_PACKET_TYPE = 0x2f   # 96-byte packets: accel X/Y/Z as float32 (g) at payload[36]
 COMMANDS = {
     "battery": CMD_GET_BATTERY,
     "info": CMD_GET_INFO,
@@ -137,6 +138,21 @@ def parse_rt(data: bytes):
     }
 
 
+def parse_accel(data: bytes):
+    """Parse a type-0x2f sensor packet: accelerometer X/Y/Z as float32 (g).
+
+    Verified: payload[36:48] is a 3xfloat32 (x,y,z) gravity/acceleration vector in
+    g units (|rest| ~= 1.0). A second copy sits at payload[52:64] (filtered vs raw).
+    """
+    import struct
+    p = unframe(data)
+    if p is None or len(p) < 48 or p[0] != ACCEL_PACKET_TYPE:
+        return None
+    x, y, z = struct.unpack_from("<fff", p, 36)
+    mag = (x * x + y * y + z * z) ** 0.5
+    return {"sub": p[1], "x": x, "y": y, "z": z, "mag": mag}
+
+
 def _self_test() -> None:
     """Reproduce the known-good reference packet exactly."""
     reference = bytes.fromhex("aa100057230423aa8ed469a96d0000005130fef3")
@@ -146,7 +162,14 @@ def _self_test() -> None:
     # (60000/789 = 76.0, so HR and RR are internally consistent).
     rt = parse_rt(bytes.fromhex("aa1800ff2802f091e201e0264c0115030000000000000101"))
     assert rt and rt["hr"] == 76 and rt["rr"] == [789], f"rt parse broke: {rt}"
-    print("whoop_protocol_PWT self-test OK — framing + real-time parse verified.")
+    # accelerometer: a captured 0x2f packet whose rest vector is ~1 g
+    ac = parse_accel(bytes.fromhex(
+        "aa5c00f02f0c05d8cf21009196ea6648568054"
+        "2c012e01d4040000000000000060914aff006cc73bb8"
+        "7effbd5c8fbb3e8ffe6e3f00000000b87effbd5c8fbb3e8ffe6e3f3502450252034402"
+        "3301a00a010c020c2000000000000001cd16550f"))
+    assert ac and 0.8 < ac["mag"] < 1.3, f"accel parse broke: {ac}"
+    print("whoop_protocol_PWT self-test OK — framing + HR + accel parse verified.")
 
 
 if __name__ == "__main__":
