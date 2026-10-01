@@ -96,16 +96,16 @@ async def run(address: str, seconds: float, with_response: bool,
                     print(f"Connected: {client.is_connected} (attempt {attempt})")
                     if not client.is_connected:
                         raise RuntimeError("connect returned but link is down")
-                    await asyncio.sleep(1.5)  # let the encrypted link settle
+                    # Subscribe IMMEDIATELY — the band hangs up a connection that
+                    # sits idle for even ~1s after connect.
+                    for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
+                        await client.start_notify(uuid, make_handler(uuid))
+                    print("subscribed to all channels\n")
                     if do_pair:
                         try:
                             print(f"pairing... pair() -> {await client.pair()}")
                         except Exception as exc:  # noqa: BLE001
                             print(f"pair() failed/already paired: {exc}")
-
-                    for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
-                        await client.start_notify(uuid, make_handler(uuid))
-                    print("subscribed to all channels\n")
 
                     if send_hello:
                         await _write(client, wp.build_packet(cmd=hello_cmd, seq=0),
@@ -116,9 +116,20 @@ async def run(address: str, seconds: float, with_response: bool,
                     await _write(client, wp.build_packet(cmd=start_cmd, seq=1, data=start_data),
                                  with_response, f"START (0x{start_cmd:02x}){dtag}")
 
-                    print(f"\nListening {seconds:.0f}s — keep the band on, hold still.\n")
+                    print(f"\nListening {seconds:.0f}s with keepalive pings "
+                          "(every 2s) — hold still.\n")
                     try:
-                        await asyncio.sleep(seconds)
+                        elapsed = 0.0
+                        ping_seq = 10
+                        while elapsed < seconds:
+                            await asyncio.sleep(2.0)
+                            elapsed += 2.0
+                            # keepalive HELLO ping so the band doesn't idle-drop us
+                            await client.write_gatt_char(
+                                wp.CMD_CHAR_UUID,
+                                wp.build_packet(cmd=wp.CMD_HELLO, seq=ping_seq),
+                                response=with_response)
+                            ping_seq = (ping_seq + 1) & 0xFF
                     except asyncio.CancelledError:
                         pass
                     finally:
