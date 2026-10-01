@@ -91,6 +91,8 @@ We drive it from Python.
 | `ble_stream_PWT.py` | **HELLO → START → watch data channel** for a continuous stream. |
 | `ble_sweep_PWT.py` | Sweep a range of command IDs to find which one wakes the data channel. |
 | `ble_pair_PWT.py` | Pair/bond with the band so it will accept our commands (encrypted link). |
+| `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
+| `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
 branch `claude/peaceful-dirac-ko6o1i`.
@@ -169,8 +171,17 @@ branch `claude/peaceful-dirac-ko6o1i`.
     → START 0x03, no payload, response=True), so the opcode was never wrong — the
     **channel** was. And every test so far was **off-wrist** (WHOOP gates the PPG/HR
     stream on skin contact).
-14. **← You are here.** Next: fixed the channel map (DATA = `61080005`); **wear the
-    band** and stream, watching `DATA(05)` for 96-byte packets.
+14. Fixed the channel map (DATA = `61080005`), solved the Windows idle-drop with a
+    harmless Battery-Level-read keepalive, and built `ble_startseq_PWT.py` to try
+    multiple start sequences in one stable connection.
+15. **🎉 REAL-TIME STREAM UNLOCKED.** The start command is **`0x03` with payload
+    `0x01`** (bare `0x03` does nothing on fw 17.2.2.0). Data then streams on
+    `DATA(05)` as **~1 Hz type-`0x28` packets** carrying **heart rate + RR
+    intervals**. Decoded and verified: one packet reported HR 76 with a single RR of
+    789 ms, and 60000/789 = 76.0 exactly. Captured HR climbing 67→78 bpm with RR
+    ~740–820 ms. Built `decode_realtime_PWT.py` to decode captures to HR/RR/CSV.
+16. **← You are here.** Validate HR against a manual pulse, then chase the
+    accelerometer stream (likely another subtype / the event channel) for gestures.
 
 ---
 
@@ -224,29 +235,31 @@ Run the self-test any time: `python whoop_protocol_PWT.py`.
 |---|---|
 | `0x01` | Get battery |
 | `0x02` | Get device info (fw / serial / hw) |
-| `0x03` | Start real-time streaming |
+| `0x03` + payload `0x01` | **Start real-time streaming** (bare `0x03` does nothing on fw 17.2.2.0) |
 | `0x04` | Stop real-time streaming |
-| `0x05` | **HELLO / handshake — send first** |
+| `0x05` | **HELLO / handshake** |
 
-### 6.4 Real-time data packet (~96 bytes, on `61080004`) — *tentative layout*
+### 6.4 Real-time data packet — **VERIFIED** (type `0x28`, ~1 Hz, on `61080005`)
 
-Adapted from the reference parser; **byte offsets past temperature are guesses**
-and will be validated against our own captures before we trust them.
+After `START` = `0x03 01`, the band streams one ~28-byte frame per second on the
+DATA channel. Our `0xAA` framing applies; the **payload** (after unframing) is:
 
-| Bytes | Field (tentative) |
-|---|---|
-| `[0]` | sequence |
-| `[1:3]` | heart rate × 100 (uint16 LE) → BPM |
-| `[3:5]` | RR interval, ms (uint16 LE) |
-| `[5]` | SpO₂ |
-| `[6]` | skin temperature °C (offset +25) |
-| `[7:9] [9:11] [11:13]` | accelerometer X / Y / Z (int16) |
-| `[13]` | motion flag |
-| `[14:16]` | PPG amplitude |
-| `[16:18]` | ambient light |
-| `[18:20]` | PPG quality |
-| `[20:91]` | unknown / reserved |
-| `[92:96]` | CRC32 (LE) |
+| Payload bytes | Field | Notes |
+|---|---|---|
+| `[0]` | packet type | `0x28` |
+| `[1]` | subtype | `0x02` = realtime metrics |
+| `[2:6]` | timestamp | uint32 LE, device uptime seconds |
+| `[6:8]` | aux | uint16 LE — not yet decoded (PPG/activity?) |
+| `[8]` | **heart rate** | bpm (uint8) |
+| `[9]` | **N** | number of RR intervals that follow |
+| `[10 : 10+2N]` | **RR intervals** | N × uint16 LE, milliseconds (beat-to-beat → HRV) |
+
+**Consistency check:** a packet with HR=76 carried a single RR of 789 ms, and
+60000 ÷ 789 = 76.0. A capture showed HR climbing 67→78 bpm with RR ~740–820 ms.
+Decoder: `python decode_realtime_PWT.py <logfile>`.
+
+> This replaces the earlier *tentative* 96-byte layout from the reference — our
+> firmware streams these compact 28-byte HR/RR packets instead.
 
 Captured **event** packet (32 bytes on `61080003`, protobuf body) for reference:
 ```
@@ -371,24 +384,24 @@ sit down:
 - Tooling for scan / explore / log / command / stream / sweep.
 
 **Done (new)**
-- **Pairing works** (Windows ConfirmOnly ceremony); the authenticated link lets
-  the band accept commands. Commands `0x01`–`0x04` return type-`0x30` replies.
+- **Pairing works** (Windows ConfirmOnly ceremony); authenticated link accepts commands.
+- **Windows idle-drop solved** with a Battery-Level-read keepalive.
+- **Real-time HR + RR streaming works** — `START = 0x03 01`, data on `DATA(05)` as
+  ~1 Hz type-`0x28` packets; decoded and verified.
 
 **Next**
-1. **Wear the band (snug, tight skin contact)** and stream — now watching the
-   corrected channel `DATA(05)` = `61080005`:
+1. **Watch your live heart rate** (wear the band, snug):
    ```powershell
    python ble_stream_PWT.py <ADDRESS> --with-response --seconds 30
    ```
-   (Pairing persists, so `--pair` is optional now.) If `DATA(05)` floods with ~96-byte
-   packets while you hold still, that's the live sensor stream — send Claude the log.
-2. If still quiet, try a start payload and/or longer listen:
+   It now prints `HR=NN bpm RR=...ms`. Sanity-check HR against a manual pulse count.
+2. Decode any saved capture:
    ```powershell
-   python ble_stream_PWT.py <ADDRESS> --with-response --start-data 01 --seconds 20
+   python decode_realtime_PWT.py ..\logs\stream_YYYYMMDD_HHMMSS_PWT.jsonl --csv hr.csv
    ```
-3. Build `decode_realtime_PWT.py` from the captured bytes — validate HR against
-   your actual resting heart rate, then lock in the accel / temp / SpO₂ offsets.
-4. Gesture recognition from the accelerometer stream.
+3. Decode the `aux` field (`[6:8]`) and hunt the **accelerometer** stream (likely
+   another `0x28` subtype or the event channel) — needed for gesture control.
+4. Also decode SpO₂ / skin-temp metrics if they appear as other subtypes.
 5. Port the verified protocol to C++ for the UE5 phase.
 
 ---

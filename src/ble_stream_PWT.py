@@ -84,7 +84,12 @@ async def run(address: str, seconds: float, with_response: bool,
             log_file.flush()
             if is_data:
                 data_packets += 1
-                print(f"  <-[DATA(05)] len={len(payload)}  {payload.hex(' ')}")
+                rt = wp.parse_rt(bytes(payload))
+                if rt:
+                    rr = (" RR=" + ",".join(str(x) for x in rt["rr"]) + "ms") if rt["rr"] else ""
+                    print(f"  <-[DATA(05)] HR={rt['hr']} bpm{rr}   (ts={rt['ts']})")
+                else:
+                    print(f"  <-[DATA(05)] len={len(payload)}  {payload.hex(' ')}")
             elif per_char[uuid] <= 6:  # don't spam for chatty non-data chars
                 print(f"  <-{wp.cname(uuid)} len={len(payload)}  {payload.hex(' ')}")
         return handler
@@ -201,8 +206,8 @@ def main() -> None:
     p.add_argument("--hello-cmd", type=_parse_int, default=wp.CMD_HELLO)
     p.add_argument("--start-cmd", type=_parse_int, default=wp.CMD_RT_HR_ON)
     p.add_argument("--stop-cmd", type=_parse_int, default=wp.CMD_RT_HR_OFF)
-    p.add_argument("--start-data", default="",
-                   help="hex payload to attach to START, e.g. 01 (toggles/sensor mask)")
+    p.add_argument("--start-data", default="01",
+                   help="hex payload for START (default 01 = verified realtime-on; '' for none)")
     args = p.parse_args()
 
     start_data = bytes.fromhex(args.start_data) if args.start_data else b""

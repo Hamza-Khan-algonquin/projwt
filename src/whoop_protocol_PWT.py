@@ -62,6 +62,11 @@ CMD_GET_INFO = 0x02        # request device info (fw/serial/hw)
 CMD_RT_HR_ON = 0x03        # begin real-time streaming (data on DATA_CHAR)
 CMD_RT_HR_OFF = 0x04       # stop real-time streaming
 CMD_HELLO = 0x05           # handshake / keep-alive (send this FIRST)
+# VERIFIED on fw 17.2.2.0: real-time streaming starts with cmd 0x03 AND payload
+# 0x01 (bare 0x03 does nothing). Data then flows on DATA_CHAR_UUID (61080005) as
+# ~1 Hz type-0x28 packets.
+RT_START_PAYLOAD = bytes([0x01])
+RT_PACKET_TYPE = 0x28
 COMMANDS = {
     "battery": CMD_GET_BATTERY,
     "info": CMD_GET_INFO,
@@ -95,15 +100,56 @@ def build_packet(cmd: int, seq: int = 0, data: bytes = b"", pkt_type: int = TYPE
     return bytes([0xAA]) + len_le + bytes([crc8(len_le)]) + payload + crc32
 
 
+def unframe(data: bytes):
+    """Validate the 0xAA frame and return the inner payload bytes, or None."""
+    if len(data) < 8 or data[0] != 0xAA:
+        return None
+    length = int.from_bytes(data[1:3], "little")
+    if crc8(data[1:3]) != data[3]:
+        return None
+    return bytes(data[4:4 + (length - 4)])  # length counts payload + 4-byte CRC32
+
+
+def parse_rt(data: bytes):
+    """Parse a real-time stream packet (type 0x28, ~1 Hz) off DATA_CHAR_UUID.
+
+    Verified layout (payload, after unframing):
+        [0]      packet type (0x28)
+        [1]      subtype (0x02 = realtime metrics)
+        [2:6]    timestamp, uint32 LE (device uptime seconds)
+        [6:8]    aux, uint16 LE (not yet decoded; PPG/activity related)
+        [8]      heart rate, bpm (uint8)
+        [9]      N = number of RR intervals that follow
+        [10:10+2N] N RR intervals, uint16 LE, milliseconds (beat-to-beat; HRV)
+    """
+    p = unframe(data)
+    if p is None or len(p) < 10 or p[0] != RT_PACKET_TYPE:
+        return None
+    n = p[9]
+    rr = [int.from_bytes(p[10 + 2 * i:12 + 2 * i], "little")
+          for i in range(n) if 12 + 2 * i <= len(p)]
+    return {
+        "ts": int.from_bytes(p[2:6], "little"),
+        "sub": p[1],
+        "aux": int.from_bytes(p[6:8], "little"),
+        "hr": p[8],
+        "rr": rr,
+    }
+
+
 def _self_test() -> None:
     """Reproduce the known-good reference packet exactly."""
     reference = bytes.fromhex("aa100057230423aa8ed469a96d0000005130fef3")
     built = build_packet(cmd=0x23, seq=0x04, data=bytes.fromhex("aa8ed469a96d000000"))
     assert built == reference, f"framing broken:\n exp {reference.hex()}\n got {built.hex()}"
-    print("whoop_protocol_PWT self-test OK — framing reproduces reference packet.")
+    # real-time parser: a captured packet with HR=76 and a single RR of 789ms
+    # (60000/789 = 76.0, so HR and RR are internally consistent).
+    rt = parse_rt(bytes.fromhex("aa1800ff2802f091e201e0264c0115030000000000000101"))
+    assert rt and rt["hr"] == 76 and rt["rr"] == [789], f"rt parse broke: {rt}"
+    print("whoop_protocol_PWT self-test OK — framing + real-time parse verified.")
 
 
 if __name__ == "__main__":
     _self_test()
-    print("RT_HR_ON :", build_packet(CMD_RT_HR_ON).hex(" "))
-    print("RT_HR_OFF:", build_packet(CMD_RT_HR_OFF).hex(" "))
+    print("RT_START (0x03+01):", build_packet(CMD_RT_HR_ON, data=RT_START_PAYLOAD).hex(" "))
+    print("RT_STOP  (0x04)   :", build_packet(CMD_RT_HR_OFF).hex(" "))
