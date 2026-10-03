@@ -91,6 +91,7 @@ We drive it from Python.
 | `ble_stream_PWT.py` | **HELLO → START → watch data channel** for a continuous stream. |
 | `ble_sweep_PWT.py` | Sweep a range of command IDs to find which one wakes the data channel. |
 | `ble_pair_PWT.py` | Pair/bond with the band so it will accept our commands (encrypted link). |
+| `ble_stop_PWT.py` | Send STOP (0x04) to switch the realtime stream + green HR LED back off. |
 | `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
 | `ble_accel_PWT.py` | Find/stream the accelerometer (payload sweep, opcode sweep, live decode). |
 | `ble_events_PWT.py` | Capture & decode live `EVT(04)` events, tagged by gesture label. |
@@ -518,6 +519,12 @@ gesture recogniser built (`gesture_PWT.py`: TAP / DOUBLE_TAP / FLICK).
 **Windows gotchas (keep handy)**
 - "operation was canceled by the user" / repeated drops → toggle Bluetooth OFF/ON.
 - Tap the band awake immediately before running any script.
+- **Green HR LED stays on after a run?** `START (0x03 01)` powers the optical HR
+  sensor (green LED); tools send `STOP (0x04)` on a clean finish, but a Ctrl+C /
+  closed window skips it, so the band keeps streaming (battery drain, LED on even
+  off-wrist). Fix: `python ble_stop_PWT.py <ADDRESS>` (or just let it idle/
+  disconnect and it stops on its own). Behaviour of the band, driven by our last
+  command — not a fault.
 
 ---
 
