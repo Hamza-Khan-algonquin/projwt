@@ -33,7 +33,9 @@ from bleak import BleakClient
 import whoop_protocol_PWT as wp
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-IMPULSE_REPORT = 0x0E
+# The band only emits these motion-related events, all firmware-gated. We treat
+# ANY of them as a motion trigger to be as responsive as the hardware allows.
+MOTION_REPORTS = {0x0E, 0x03, 0x3F}
 
 
 async def run(address: str, seconds: float, gap: float, multi: float,
@@ -50,6 +52,7 @@ async def run(address: str, seconds: float, gap: float, multi: float,
         "hr": None,
     }
     counts = {"FLICK": 0, "DOUBLE_FLICK": 0, "SHAKE": 0}
+    by_id = {}   # report-id -> how many motion events fired (sensitivity tally)
 
     def flush_gesture():
         nb = len(st["bursts"])
@@ -72,13 +75,14 @@ async def run(address: str, seconds: float, gap: float, multi: float,
             frame = bytes(payload)
             if uuid == wp.EVENT_CHAR_UUID:
                 ev = wp.parse_event(frame)
-                if ev and ev["report"] == IMPULSE_REPORT:
+                if ev and ev["report"] in MOTION_REPORTS:
                     st["open_burst"].append(time.monotonic())
                     st["last_activity"] = time.monotonic()
-                    print("·", end="", flush=True)   # live feedback per impulse
+                    by_id[ev["report"]] = by_id.get(ev["report"], 0) + 1
+                    print(f"·{ev['report']:02x}", end=" ", flush=True)  # live feedback + which event
                     log_file.write(json.dumps({
                         "ts": datetime.now(timezone.utc).isoformat(),
-                        "impulse": True, "body": ev["body"]}) + "\n")
+                        "impulse": True, "report": ev["report"], "body": ev["body"]}) + "\n")
                     log_file.flush()
             elif uuid == wp.DATA_CHAR_UUID:
                 rt = wp.parse_rt(frame)
@@ -149,8 +153,11 @@ async def run(address: str, seconds: float, gap: float, multi: float,
     print(f"\n=== Done -> {log_path} ===")
     print(f"recognized: FLICK={counts['FLICK']}  DOUBLE_FLICK={counts['DOUBLE_FLICK']}  "
           f"SHAKE={counts['SHAKE']}")
-    print("Note: tap sensitivity is fixed in the band's firmware (not host-tunable);"
-          " flicks are the reliable primitive.")
+    if by_id:
+        print("motion events by report-id: " +
+              ", ".join(f"0x{r:02x}={n}" for r, n in sorted(by_id.items())))
+    print("Note: all motion events are firmware-gated (high threshold, not"
+          " host-tunable). This is the ceiling of the band as a live motion sensor.")
 
 
 def main() -> None:
