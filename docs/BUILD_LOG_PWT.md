@@ -98,6 +98,7 @@ We drive it from Python.
 | `gesture_PWT.py` | **Live gesture recognition** — tunable FLICK trigger from `0x0e` impulses (+ strength filter). |
 | `safety_state_machine_PWT.py` | **L3 fail-closed safety core** — pure logic, 7 unit tests, no hardware. |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
+| `decode_debuglog_PWT.py` | Mine the band's own firmware debug-log strings (type `0x32`) from a capture. |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
 branch `claude/peaceful-dirac-ko6o1i`.
@@ -248,9 +249,17 @@ branch `claude/peaceful-dirac-ko6o1i`.
     unit tests pass** covering: happy path, continuous-hold MOVE cadence,
     hold-without-arm (nothing), disarm-stops, arm-timeout, heartbeat-loss stop, and
     STOPPING can't jump back to HOLDING. Runs with `python safety_state_machine_PWT.py`.
-27. **← You are here.** Wire the live `FLICK` recogniser into the state machine as the
-    arm/confirm input; stand up the continuous-hold source (phone IMU) for the
-    `hold` input; then a harmless IoT actuator to prove the pipeline end-to-end.
+27. **Firmware-config lead (sensitivity):** the band's own debug-log text (type
+    `0x32`, captured during the `0x16` historical dump) includes `Sensors: Realtime
+    HR disabled` and `Sensors: Realtime raw disabled` — i.e. a **raw sensor mode that
+    is off by default**. Enabling it over BLE (a config command, NOT firmware
+    patching — the image is signed/brick-risk) could give live raw accel and make the
+    tap threshold irrelevant. Built `decode_debuglog_PWT.py` to mine those strings
+    for the command vocabulary. (Binary firmware patching is out of scope: signed,
+    needs SWD/JTAG + key, bricking risk.)
+28. **← You are here.** Mine the firmware strings → probe an "enable realtime raw"
+    command. In parallel: wire live `FLICK` → state machine; phone-IMU hold source;
+    harmless IoT actuator to prove the pipeline.
 
 ---
 
