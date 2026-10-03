@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
-r"""gesture_PWT.py — LIVE flick-based gesture recognition.
+r"""gesture_PWT.py — LIVE, TUNABLE flick/knock gesture trigger.
 
-Reality of this band: the tap detector lives in FIRMWARE with a high threshold
-(the green LED = firmware registered a tap). We can't lower that from the host, so
-single taps / double-taps are unreliable. FLICKS, however, fire the impulse event
-(EVENT_CHAR 61080004, type 0x30, report id 0x0e) reliably and repeatedly. So we
-build the vocabulary around flicks.
+The band's motion events are firmware-gated (high threshold, NOT host-tunable): we
+only receive the events the firmware emits (report ids 0x0e, and sometimes
+0x03/0x3f). We can't make it more sensitive — but we CAN make it more ACCURATE by
+filtering what we accept:
 
-Two-level clustering:
-  * impulses within --gap seconds   -> one BURST (a single flick usually = 1 burst
-    of a few impulses)
-  * bursts within --multi seconds    -> one GESTURE
-        1 burst  -> FLICK
-        2 bursts -> DOUBLE_FLICK
-        >=3 burst-> SHAKE
+  --strength N   ignore events whose strength value is below N (kills weak/false
+                 triggers). Each event prints its strength so you can pick N.
+  --min-impulses accept a gesture only if the burst has >= this many impulses.
+  --cooldown S   after a recognized gesture, ignore events for S seconds (debounce).
+  --gap / --multi  timing for grouping impulses -> burst -> gesture.
 
-Every impulse prints a live tick so you can see the band reacting immediately.
+Workflow: run once watching the strength numbers your real flicks produce vs. any
+stray blips, then set --strength just under your real-flick values.
 
 Usage:
-    python gesture_PWT.py <ADDRESS>
-    python gesture_PWT.py <ADDRESS> --gap 0.35 --multi 1.1 --seconds 120
+    python gesture_PWT.py <ADDRESS>                       # see strengths, defaults
+    python gesture_PWT.py <ADDRESS> --strength 12000 --cooldown 0.6
 """
 import argparse
 import asyncio
@@ -33,26 +31,28 @@ from bleak import BleakClient
 import whoop_protocol_PWT as wp
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-# The band only emits these motion-related events, all firmware-gated. We treat
-# ANY of them as a motion trigger to be as responsive as the hardware allows.
-MOTION_REPORTS = {0x0E, 0x03, 0x3F}
+MOTION_REPORTS = {0x0E, 0x03, 0x3F}   # firmware motion/impulse events we accept
 
 
-async def run(address: str, seconds: float, gap: float, multi: float,
-              with_response: bool) -> None:
+def strength_of(ev) -> int:
+    """Tentative impact-strength = magnitude of the first body field (int16).
+
+    (Confirmed candidate; refine once we decode the body against labeled logs.)
+    """
+    return abs(ev["ints"][0]) if ev.get("ints") else 0
+
+
+async def run(address, seconds, gap, multi, strength_min, min_impulses, cooldown,
+              with_response) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"gesture_{stamp}_PWT.jsonl"
     log_file = log_path.open("w", encoding="utf-8")
 
-    st = {
-        "open_burst": [],      # impulse times in the currently-forming burst
-        "bursts": [],          # impulse-counts of completed bursts awaiting flush
-        "last_activity": 0.0,  # monotonic time of last impulse or burst close
-        "hr": None,
-    }
-    counts = {"FLICK": 0, "DOUBLE_FLICK": 0, "SHAKE": 0}
-    by_id = {}   # report-id -> how many motion events fired (sensitivity tally)
+    st = {"open_burst": [], "bursts": [], "last_activity": 0.0,
+          "cooldown_until": 0.0, "hr": None}
+    counts = {"FLICK": 0, "DOUBLE_FLICK": 0, "SHAKE": 0, "rejected": 0}
+    strengths = []   # accepted-event strengths, for the end-of-run guidance
 
     def flush_gesture():
         nb = len(st["bursts"])
@@ -62,6 +62,7 @@ async def run(address: str, seconds: float, gap: float, multi: float,
             return
         g = "FLICK" if nb == 1 else "DOUBLE_FLICK" if nb == 2 else "SHAKE"
         counts[g] += 1
+        st["cooldown_until"] = time.monotonic() + cooldown
         label = {"FLICK": "〜 FLICK", "DOUBLE_FLICK": "〜〜 DOUBLE-FLICK",
                  "SHAKE": "≈≈ SHAKE"}[g]
         hr = f"   (HR {st['hr']})" if st["hr"] else ""
@@ -75,15 +76,25 @@ async def run(address: str, seconds: float, gap: float, multi: float,
             frame = bytes(payload)
             if uuid == wp.EVENT_CHAR_UUID:
                 ev = wp.parse_event(frame)
-                if ev and ev["report"] in MOTION_REPORTS:
-                    st["open_burst"].append(time.monotonic())
-                    st["last_activity"] = time.monotonic()
-                    by_id[ev["report"]] = by_id.get(ev["report"], 0) + 1
-                    print(f"·{ev['report']:02x}", end=" ", flush=True)  # live feedback + which event
-                    log_file.write(json.dumps({
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                        "impulse": True, "report": ev["report"], "body": ev["body"]}) + "\n")
-                    log_file.flush()
+                if not ev or ev["report"] not in MOTION_REPORTS:
+                    return
+                now = time.monotonic()
+                s = strength_of(ev)
+                # always log the raw event so we can decode the body later
+                log_file.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(),
+                               "report": ev["report"], "strength": s,
+                               "body": ev["body"]}) + "\n")
+                log_file.flush()
+                if now < st["cooldown_until"]:
+                    return                       # debounce window
+                if s < strength_min:
+                    counts["rejected"] += 1
+                    print(f"·{ev['report']:02x}(x{s})", end=" ", flush=True)  # rejected: too weak
+                    return
+                strengths.append(s)
+                st["open_burst"].append(now)
+                st["last_activity"] = now
+                print(f"·{ev['report']:02x}({s})", end=" ", flush=True)       # accepted
             elif uuid == wp.DATA_CHAR_UUID:
                 rt = wp.parse_rt(frame)
                 if rt:
@@ -103,19 +114,21 @@ async def run(address: str, seconds: float, gap: float, multi: float,
         await send(wp.CMD_HELLO)
         await asyncio.sleep(0.6)
         await send(wp.CMD_RT_HR_ON, wp.RT_START_PAYLOAD)
-        print(f"\nReady — FLICK your wrist (sharp). Each '·' is a detected impulse.")
-        print(f"1 flick = FLICK · 2 flicks = DOUBLE-FLICK · rapid = SHAKE. Listening {seconds:.0f}s.\n")
+        print(f"\nReady — flick your wrist. Each tick = an event; the number is its strength.")
+        print(f"strength filter >= {strength_min}, min impulses {min_impulses}, "
+              f"cooldown {cooldown}s. Listening {seconds:.0f}s.\n")
         t, last_batt = 0.0, 0.0
         while t < seconds:
             await asyncio.sleep(0.05)
             t += 0.05
             now = time.monotonic()
-            # close the open burst once impulses stop for `gap`
             if st["open_burst"] and (now - st["open_burst"][-1]) >= gap:
-                st["bursts"].append(len(st["open_burst"]))
+                n = len(st["open_burst"])
                 st["open_burst"] = []
-                st["last_activity"] = now
-            # flush a gesture once bursts settle for `multi`
+                if n >= min_impulses:
+                    st["bursts"].append(n)
+                    st["last_activity"] = now
+                # else: burst too small -> ignore (noise)
             if st["bursts"] and not st["open_burst"] and (now - st["last_activity"]) >= multi:
                 flush_gesture()
             if t - last_batt >= 2.0:
@@ -152,26 +165,36 @@ async def run(address: str, seconds: float, gap: float, multi: float,
 
     print(f"\n=== Done -> {log_path} ===")
     print(f"recognized: FLICK={counts['FLICK']}  DOUBLE_FLICK={counts['DOUBLE_FLICK']}  "
-          f"SHAKE={counts['SHAKE']}")
-    if by_id:
-        print("motion events by report-id: " +
-              ", ".join(f"0x{r:02x}={n}" for r, n in sorted(by_id.items())))
-    print("Note: all motion events are firmware-gated (high threshold, not"
-          " host-tunable). This is the ceiling of the band as a live motion sensor.")
+          f"SHAKE={counts['SHAKE']}  (rejected-too-weak={counts['rejected']})")
+    if strengths:
+        strengths.sort()
+        lo, mid, hi = strengths[0], strengths[len(strengths) // 2], strengths[-1]
+        print(f"accepted-event strength  min/median/max = {lo} / {mid} / {hi}")
+        print(f"TUNE: set --strength a bit below your real-flick values "
+              f"(try ~{int(mid * 0.7)}) to reject weak/false triggers.")
+    print("Reminder: the band won't report flicks below its own firmware threshold;"
+          " --strength only filters what it already sends.")
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Live flick-based gesture recognition (ProjWT).")
+    p = argparse.ArgumentParser(description="Live, tunable flick gesture trigger (ProjWT).")
     p.add_argument("address")
-    p.add_argument("--seconds", type=float, default=120.0)
+    p.add_argument("--seconds", type=float, default=90.0)
+    p.add_argument("--strength", type=int, default=0,
+                   help="reject events weaker than this (0 = accept all; watch the printed numbers)")
+    p.add_argument("--min-impulses", type=int, default=1,
+                   help="impulses a burst needs to count as a gesture (raise to reject stray blips)")
+    p.add_argument("--cooldown", type=float, default=0.5,
+                   help="seconds to ignore events after a recognized gesture (debounce)")
     p.add_argument("--gap", type=float, default=0.35,
-                   help="max seconds between impulses within one burst/flick (default 0.35)")
+                   help="max seconds between impulses within one burst (default 0.35)")
     p.add_argument("--multi", type=float, default=1.1,
                    help="window to group consecutive flicks into one gesture (default 1.1)")
     p.add_argument("--no-response", action="store_true", help="use write-without-response")
     args = p.parse_args()
     try:
         asyncio.run(run(args.address, args.seconds, args.gap, args.multi,
+                        args.strength, args.min_impulses, args.cooldown,
                         not args.no_response))
     except KeyboardInterrupt:
         print("\nStopped by user.")
