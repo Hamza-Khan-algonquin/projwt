@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-r"""gesture_PWT.py — LIVE gesture recognition from the band's impulse events.
+r"""gesture_PWT.py — LIVE flick-based gesture recognition.
 
-Phase-2 established that the band emits a discrete "sharp-motion" event
-(EVENT_CHAR 61080004, type 0x30, report id 0x0e) on taps and flicks, and emits
-nothing for slow/large motion. This tool turns that single primitive into a small
-gesture vocabulary by clustering events in time:
+Reality of this band: the tap detector lives in FIRMWARE with a high threshold
+(the green LED = firmware registered a tap). We can't lower that from the host, so
+single taps / double-taps are unreliable. FLICKS, however, fire the impulse event
+(EVENT_CHAR 61080004, type 0x30, report id 0x0e) reliably and repeatedly. So we
+build the vocabulary around flicks.
 
-    1 impulse               -> TAP
-    2 impulses (< gap)       -> DOUBLE_TAP
-    >= 3 impulses (< gap)    -> FLICK / SHAKE
+Two-level clustering:
+  * impulses within --gap seconds   -> one BURST (a single flick usually = 1 burst
+    of a few impulses)
+  * bursts within --multi seconds    -> one GESTURE
+        1 burst  -> FLICK
+        2 bursts -> DOUBLE_FLICK
+        >=3 burst-> SHAKE
 
-It keeps a stable session (HELLO + START 0x03 01 + battery-read keepalive, with a
-reconnect loop) and prints a big line the moment it recognizes a gesture, so you
-can see it react. Tune --gap / --flick to taste.
+Every impulse prints a live tick so you can see the band reacting immediately.
 
 Usage:
     python gesture_PWT.py <ADDRESS>
-    python gesture_PWT.py <ADDRESS> --gap 0.45 --flick 3 --seconds 120
+    python gesture_PWT.py <ADDRESS> --gap 0.35 --multi 1.1 --seconds 120
 """
 import argparse
 import asyncio
@@ -30,36 +33,38 @@ from bleak import BleakClient
 import whoop_protocol_PWT as wp
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-IMPULSE_REPORT = 0x0E   # report id that fires on taps/flicks
+IMPULSE_REPORT = 0x0E
 
 
-async def run(address: str, seconds: float, gap: float, flick_n: int,
+async def run(address: str, seconds: float, gap: float, multi: float,
               with_response: bool) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"gesture_{stamp}_PWT.jsonl"
     log_file = log_path.open("w", encoding="utf-8")
-    cluster: list[float] = []     # monotonic times of impulses in the open cluster
-    last_hr = {"bpm": None}
-    counts = {"TAP": 0, "DOUBLE_TAP": 0, "FLICK": 0}
 
-    def classify_and_report():
-        n = len(cluster)
-        cluster.clear()
-        if n <= 0:
+    st = {
+        "open_burst": [],      # impulse times in the currently-forming burst
+        "bursts": [],          # impulse-counts of completed bursts awaiting flush
+        "last_activity": 0.0,  # monotonic time of last impulse or burst close
+        "hr": None,
+    }
+    counts = {"FLICK": 0, "DOUBLE_FLICK": 0, "SHAKE": 0}
+
+    def flush_gesture():
+        nb = len(st["bursts"])
+        total = sum(st["bursts"])
+        st["bursts"] = []
+        if nb <= 0:
             return
-        if n >= flick_n:
-            g = "FLICK"
-        elif n == 2:
-            g = "DOUBLE_TAP"
-        else:
-            g = "TAP"
+        g = "FLICK" if nb == 1 else "DOUBLE_FLICK" if nb == 2 else "SHAKE"
         counts[g] += 1
-        bar = {"TAP": "➤ TAP", "DOUBLE_TAP": "➤➤ DOUBLE-TAP", "FLICK": "〜 FLICK/SHAKE"}[g]
-        hr = f"   (HR {last_hr['bpm']})" if last_hr["bpm"] else ""
-        print(f"  {bar}   [{n} impulse{'s' if n > 1 else ''}]{hr}")
+        label = {"FLICK": "〜 FLICK", "DOUBLE_FLICK": "〜〜 DOUBLE-FLICK",
+                 "SHAKE": "≈≈ SHAKE"}[g]
+        hr = f"   (HR {st['hr']})" if st["hr"] else ""
+        print(f"\n  {label}   [{nb} burst(s), {total} impulses]{hr}\n")
         log_file.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(),
-                                   "gesture": g, "impulses": n}) + "\n")
+                                   "gesture": g, "bursts": nb, "impulses": total}) + "\n")
         log_file.flush()
 
     def make_handler(uuid):
@@ -68,11 +73,17 @@ async def run(address: str, seconds: float, gap: float, flick_n: int,
             if uuid == wp.EVENT_CHAR_UUID:
                 ev = wp.parse_event(frame)
                 if ev and ev["report"] == IMPULSE_REPORT:
-                    cluster.append(time.monotonic())
+                    st["open_burst"].append(time.monotonic())
+                    st["last_activity"] = time.monotonic()
+                    print("·", end="", flush=True)   # live feedback per impulse
+                    log_file.write(json.dumps({
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "impulse": True, "body": ev["body"]}) + "\n")
+                    log_file.flush()
             elif uuid == wp.DATA_CHAR_UUID:
                 rt = wp.parse_rt(frame)
                 if rt:
-                    last_hr["bpm"] = rt["hr"]
+                    st["hr"] = rt["hr"]
         return handler
 
     async def session(client):
@@ -87,26 +98,28 @@ async def run(address: str, seconds: float, gap: float, flick_n: int,
                 raise
         await send(wp.CMD_HELLO)
         await asyncio.sleep(0.6)
-        await send(wp.CMD_RT_HR_ON, wp.RT_START_PAYLOAD)  # keep a live session + HR
-        print(f"\nReady — TAP (sharp), DOUBLE-TAP, or FLICK your wrist. Listening {seconds:.0f}s.\n")
-        t = 0.0
-        tick = 0.1
-        last_batt = 0.0
+        await send(wp.CMD_RT_HR_ON, wp.RT_START_PAYLOAD)
+        print(f"\nReady — FLICK your wrist (sharp). Each '·' is a detected impulse.")
+        print(f"1 flick = FLICK · 2 flicks = DOUBLE-FLICK · rapid = SHAKE. Listening {seconds:.0f}s.\n")
+        t, last_batt = 0.0, 0.0
         while t < seconds:
-            await asyncio.sleep(tick)
-            t += tick
-            # close a cluster once impulses stop arriving for `gap` seconds
-            if cluster and (time.monotonic() - cluster[-1]) >= gap:
-                classify_and_report()
-            # battery-read keepalive every 2s so the link doesn't idle-drop
+            await asyncio.sleep(0.05)
+            t += 0.05
+            now = time.monotonic()
+            # close the open burst once impulses stop for `gap`
+            if st["open_burst"] and (now - st["open_burst"][-1]) >= gap:
+                st["bursts"].append(len(st["open_burst"]))
+                st["open_burst"] = []
+                st["last_activity"] = now
+            # flush a gesture once bursts settle for `multi`
+            if st["bursts"] and not st["open_burst"] and (now - st["last_activity"]) >= multi:
+                flush_gesture()
             if t - last_batt >= 2.0:
                 last_batt = t
                 try:
                     await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)
                 except Exception:  # noqa: BLE001
                     raise
-        if cluster:
-            classify_and_report()
         await send(wp.CMD_RT_HR_OFF)
         for uuid in wp.NOTIFY_CHARS + [wp.HR_CHAR_UUID]:
             try:
@@ -134,22 +147,24 @@ async def run(address: str, seconds: float, gap: float, flick_n: int,
         log_file.close()
 
     print(f"\n=== Done -> {log_path} ===")
-    print(f"recognized: TAP={counts['TAP']}  DOUBLE_TAP={counts['DOUBLE_TAP']}  FLICK={counts['FLICK']}")
-    print("Tip: flicks are the most reliable primitive on this band; taps need to be sharp.")
+    print(f"recognized: FLICK={counts['FLICK']}  DOUBLE_FLICK={counts['DOUBLE_FLICK']}  "
+          f"SHAKE={counts['SHAKE']}")
+    print("Note: tap sensitivity is fixed in the band's firmware (not host-tunable);"
+          " flicks are the reliable primitive.")
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Live tap/flick gesture recognition (ProjWT).")
+    p = argparse.ArgumentParser(description="Live flick-based gesture recognition (ProjWT).")
     p.add_argument("address")
-    p.add_argument("--seconds", type=float, default=120.0, help="run duration (default 120)")
-    p.add_argument("--gap", type=float, default=0.45,
-                   help="max seconds between impulses in one gesture cluster (default 0.45)")
-    p.add_argument("--flick", type=int, default=3,
-                   help="impulses needed to call it a FLICK/SHAKE (default 3)")
+    p.add_argument("--seconds", type=float, default=120.0)
+    p.add_argument("--gap", type=float, default=0.35,
+                   help="max seconds between impulses within one burst/flick (default 0.35)")
+    p.add_argument("--multi", type=float, default=1.1,
+                   help="window to group consecutive flicks into one gesture (default 1.1)")
     p.add_argument("--no-response", action="store_true", help="use write-without-response")
     args = p.parse_args()
     try:
-        asyncio.run(run(args.address, args.seconds, args.gap, args.flick,
+        asyncio.run(run(args.address, args.seconds, args.gap, args.multi,
                         not args.no_response))
     except KeyboardInterrupt:
         print("\nStopped by user.")
