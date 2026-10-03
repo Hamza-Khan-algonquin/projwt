@@ -94,7 +94,8 @@ We drive it from Python.
 | `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
 | `ble_accel_PWT.py` | Find/stream the accelerometer (payload sweep, opcode sweep, live decode). |
 | `ble_events_PWT.py` | Capture & decode live `EVT(04)` events, tagged by gesture label. |
-| `gesture_PWT.py` | **Live gesture recognition** — TAP / DOUBLE_TAP / FLICK from `0x0e` impulses. |
+| `gesture_PWT.py` | **Live gesture recognition** — tunable FLICK trigger from `0x0e` impulses (+ strength filter). |
+| `safety_state_machine_PWT.py` | **L3 fail-closed safety core** — pure logic, 7 unit tests, no hardware. |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
@@ -239,8 +240,16 @@ branch `claude/peaceful-dirac-ko6o1i`.
     discrete **arm / confirm** trigger (you don't want an accidental light motion
     firing a vehicle/IoT command). Continuous "active-hold" still needs the 2nd
     sensor per the architecture; discrete confirm = hard flick from the band is fine.
-26. **← You are here.** Lock `FLICK = confirm` as the band's reliable discrete gesture,
-    then build the L3 safety state machine (pure logic, unit-tested, no hardware).
+26. **Built the L3 safety state machine** (`safety_state_machine_PWT.py`) — pure,
+    hardware-free, fail-closed logic (IDLE/ARMED/HOLDING/STOPPING) consuming
+    `gesture` (FLICK=arm/disarm), `hold` (continuous source), `heartbeat`, `tick`,
+    and emitting guarded `ARM/DISARM/MOVE/STOP` commands with a TTL on MOVE. **7
+    unit tests pass** covering: happy path, continuous-hold MOVE cadence,
+    hold-without-arm (nothing), disarm-stops, arm-timeout, heartbeat-loss stop, and
+    STOPPING can't jump back to HOLDING. Runs with `python safety_state_machine_PWT.py`.
+27. **← You are here.** Wire the live `FLICK` recogniser into the state machine as the
+    arm/confirm input; stand up the continuous-hold source (phone IMU) for the
+    `hold` input; then a harmless IoT actuator to prove the pipeline end-to-end.
 
 ---
 
