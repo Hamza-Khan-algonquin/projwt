@@ -180,11 +180,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Live, tunable flick gesture trigger (ProjWT).")
     p.add_argument("address")
     p.add_argument("--seconds", type=float, default=90.0)
-    p.add_argument("--strength", type=int, default=0,
-                   help="reject events weaker than this (0 = accept all; watch the printed numbers)")
+    p.add_argument("--strength", type=int, default=6000,
+                   help="reject events weaker than this (measured: real flicks >=~7000, "
+                        "ringing <~5000; set 0 to see everything)")
     p.add_argument("--min-impulses", type=int, default=1,
                    help="impulses a burst needs to count as a gesture (raise to reject stray blips)")
-    p.add_argument("--cooldown", type=float, default=0.5,
+    p.add_argument("--cooldown", type=float, default=0.6,
                    help="seconds to ignore events after a recognized gesture (debounce)")
     p.add_argument("--gap", type=float, default=0.35,
                    help="max seconds between impulses within one burst (default 0.35)")

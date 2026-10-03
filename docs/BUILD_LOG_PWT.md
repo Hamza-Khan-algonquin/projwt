@@ -226,8 +226,21 @@ branch `claude/peaceful-dirac-ko6o1i`.
 23. **Built the live gesture recogniser** (`gesture_PWT.py`): clusters `0x0e`
     impulses in time → TAP (1) / DOUBLE_TAP (2) / FLICK (≥3), with on-screen output
     and a stable session. This is the L2 discrete-gesture engine.
-24. **← You are here.** Tune the recogniser on-wrist (gap/flick thresholds), then
-    build the L3 safety state machine on TAP=arm / FLICK=confirm (or similar).
+24. **Impulse strength field confirmed + firmware floor is real.** The `0x0e` body's
+    first int16 is an **impact-strength** value: a real flick's initial impulse reads
+    ~7000–31000, while the ringing/settle that follows reads ~1400–4800 (clear gap).
+    So each hard flick can be reduced to one clean `FLICK` (strength filter + burst
+    grouping + cooldown; defaults: `--strength 6000 --cooldown 0.6`). **But the
+    "must flick hard" requirement is a FIRMWARE floor** — the band only emits the
+    event above its own threshold; no host setting lowers it (confirmed; no
+    sensitivity command exists). A host strength filter only improves *accuracy*,
+    not *sensitivity*.
+25. **Design note:** a deliberate firm flick is acceptable — even desirable — as a
+    discrete **arm / confirm** trigger (you don't want an accidental light motion
+    firing a vehicle/IoT command). Continuous "active-hold" still needs the 2nd
+    sensor per the architecture; discrete confirm = hard flick from the band is fine.
+26. **← You are here.** Lock `FLICK = confirm` as the band's reliable discrete gesture,
+    then build the L3 safety state machine (pure logic, unit-tested, no hardware).
 
 ---
 
