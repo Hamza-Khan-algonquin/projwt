@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ble_events_PWT.py — capture & decode LIVE events for gesture recognition.
+r"""ble_events_PWT.py — capture & decode LIVE events for gesture recognition.
 
 Why: raw accelerometer is NOT exposed as a live BLE stream on this firmware
 (swept 0x01-0x2f). The live signals we DO have are HR+RR and discrete events on

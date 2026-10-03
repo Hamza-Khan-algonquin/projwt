@@ -94,6 +94,7 @@ We drive it from Python.
 | `ble_startseq_PWT.py` | Try several start sequences in one connection to find the stream trigger. |
 | `ble_accel_PWT.py` | Find/stream the accelerometer (payload sweep, opcode sweep, live decode). |
 | `ble_events_PWT.py` | Capture & decode live `EVT(04)` events, tagged by gesture label. |
+| `gesture_PWT.py` | **Live gesture recognition** — TAP / DOUBLE_TAP / FLICK from `0x0e` impulses. |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
@@ -211,8 +212,22 @@ branch `claude/peaceful-dirac-ko6o1i`.
 21. **Design implication:** a smooth continuous "active-hold" wrist gesture isn't
     possible from the band alone over BLE (no live orientation stream). Discrete
     gestures (tap / double-tap / motion triggers) via `EVT(04)` are, plus live HR.
-22. **← You are here — path (b):** decode the live `EVT(04)` events (`ble_events_PWT.py`)
-    with labeled gesture captures, and build a discrete-gesture recogniser.
+22. **Live events characterized (labeled captures).** Ran `ble_events_PWT.py` for
+    still / tap / doubletap / flick / raise / armswing. Result:
+    - `0x0e` = **impulse event** (sharp motion): still=0, tap=5, doubletap=6,
+      flick=9, raise=0, armswing=0. It fires on taps/flicks and **ignores slow or
+      large motion** — slow raise and vigorous armswing produced *zero* `0x0e`
+      (only HR rose). Green LED = tap registered; taps need to be sharp, flicks are
+      the most reliable primitive.
+    - `0x21` = once-per-session status/startup event (not a gesture).
+    - `0x03` / `0x3f` = occasional richer "activity report" events (multi-field).
+    - Confirms: the only live motion signal is **impulse detection**, not continuous
+      orientation.
+23. **Built the live gesture recogniser** (`gesture_PWT.py`): clusters `0x0e`
+    impulses in time → TAP (1) / DOUBLE_TAP (2) / FLICK (≥3), with on-screen output
+    and a stable session. This is the L2 discrete-gesture engine.
+24. **← You are here.** Tune the recogniser on-wrist (gap/flick thresholds), then
+    build the L3 safety state machine on TAP=arm / FLICK=confirm (or similar).
 
 ---
 
@@ -313,6 +328,22 @@ Unlocked by probing opcodes `0x10–0x1f`. The accelerometer is reported as
 > carry a real calendar timestamp (2024-09-18), so the accel values are stored flash
 > records, not a live feed. Live raw accel has not been found over BLE on this
 > firmware (opcodes 0x01–0x1f); see §9 for the gesture-control fork.
+
+### 6.9 Live events — type `0x30` on `EVENT_CHAR` (`61080004`)
+
+Discrete events. Layout: `[0]`=type `0x30`, `[1]`=seq, `[2]`=**report id**, `[3]`=0,
+`[4:8]`=uptime ts, `[8:]`=body. Report ids observed, from labeled captures:
+
+| Report id | Meaning | Fires on |
+|---|---|---|
+| `0x0e` | **Impulse** (tap / flick) — the gesture primitive | sharp wrist motion only |
+| `0x21` | Session status / startup | once on connect |
+| `0x03`, `0x3f` | Activity report (multi-field body) | occasionally during motion |
+
+Key behaviour: **slow or large motion produces no event** (a slow arm-raise and a
+vigorous arm-swing both yielded zero `0x0e` — only heart rate rose). So the band's
+only live motion signal is impulse detection. Gesture vocabulary is built by
+clustering `0x0e` in time (`gesture_PWT.py`): 1 → TAP, 2 → DOUBLE_TAP, ≥3 → FLICK.
 
 Captured **event** packet (32 bytes on `61080003`, protobuf body) for reference:
 ```
@@ -446,19 +477,20 @@ sit down:
 **Finding:** live raw accel is NOT available over BLE (swept `0x01–0x2f`). Accel is
 historical-only. So gesture control uses the live `EVT(04)` events + HR.
 
+**Done (new):** live events characterized (`0x0e` = tap/flick impulse) and a live
+gesture recogniser built (`gesture_PWT.py`: TAP / DOUBLE_TAP / FLICK).
+
 **Next**
-1. **Capture labeled gestures** (tap the band awake first; one gesture per run,
-   repeat it the whole window):
+1. **Tune the recogniser on-wrist** (tap the band awake first):
    ```powershell
-   python ble_events_PWT.py <ADDRESS> --label still     --seconds 20
-   python ble_events_PWT.py <ADDRESS> --label tap       --seconds 20
-   python ble_events_PWT.py <ADDRESS> --label doubletap --seconds 20
-   python ble_events_PWT.py <ADDRESS> --label flick     --seconds 20
-   python ble_events_PWT.py <ADDRESS> --label raise     --seconds 20
+   python gesture_PWT.py <ADDRESS> --seconds 120
    ```
-   Send Claude the `logs\events_*.jsonl` files; we diff report-ids/fields per gesture.
-2. Build a discrete-gesture recogniser from the distinguishing event(s).
-3. Decode the HR `aux` field; decode historical accel (`0x2f`) for offline analysis.
+   Flick a few times, tap sharply, double-tap. Adjust `--gap` (cluster window) and
+   `--flick` (impulses for a flick) until TAP vs FLICK feel right. Send Claude a
+   couple of `logs\events_*.jsonl` so we can decode the `0x0e` body (impact field).
+2. Build the **L3 safety state machine** (unit-tested, no hardware) driven by the
+   recogniser: e.g. FLICK = arm/disarm, with fail-closed guards.
+3. Decode the HR `aux` field; decode historical accel (`0x2f`) offline.
 4. Port the verified protocol to C++ for the UE5 phase.
 
 **Windows gotchas (keep handy)**
