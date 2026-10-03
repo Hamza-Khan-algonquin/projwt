@@ -361,6 +361,27 @@ Unlocked by probing opcodes `0x10–0x1f`. The accelerometer is reported as
 > records, not a live feed. Live raw accel has not been found over BLE on this
 > firmware (opcodes 0x01–0x1f); see §9 for the gesture-control fork.
 
+### 6.8b Firmware internals (from the band's own debug-log strings)
+
+Mined from `type 0x32` debug text during a `0x16` historical dump
+(`decode_debuglog_PWT.py`):
+
+- **Two realtime modes, independently toggled:** `Sensors: Realtime HR` and
+  `Sensors: Realtime raw` (both logged as `disabled` when idle). We drive *HR* via
+  `0x03 01`; **`Realtime raw` is the target for live accel/PPG but its enable
+  command is unknown** (the `0x03` payload only toggles HR).
+- **Config system exists:** `CONFIG_VALUE_OFF` (settable config enum).
+- **Internal stream/packet IDs:** `R7 realtime stream`, `R10+R11 data packet
+  transmission default`.
+- `BLE: Command Send Historical Data` = our `0x16`; dump prints `History burst
+  success … Trim: 0x…` and `PullStats: Data: N, Events: M, Bytes:…`.
+- `HELLO` reply carries `FG SOC (tenths)` (state-of-charge) and `Nordic Ver:
+  17.2.2.0`.
+
+**Open question:** is `Realtime raw` exposable over BLE to a third party, or is it
+app-auth-gated / flash-only? Not determinable by black-box probing; the definitive
+answer is a BLE sniff of the official app (HCI snoop log). See §9.
+
 ### 6.9 Live events — type `0x30` on `EVENT_CHAR` (`61080004`)
 
 Discrete events. Layout: `[0]`=type `0x30`, `[1]`=seq, `[2]`=**report id**, `[3]`=0,
