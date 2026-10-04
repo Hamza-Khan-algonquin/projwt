@@ -214,24 +214,39 @@ def decode_historical(data: bytes):
     def i16(off):
         return struct.unpack_from("<h", p, off)[0] if off + 2 <= len(p) else None
 
-    def grav(off):
+    def u16(off):
+        return struct.unpack_from("<H", p, off)[0] if off + 2 <= len(p) else None
+
+    def _accept(g):
+        mag = (g[0] ** 2 + g[1] ** 2 + g[2] ** 2) ** 0.5
+        # same gate as whoop-rs accept_gravity: a real gravity vector sits near 1 g
+        return {"x": g[0], "y": g[1], "z": g[2], "mag": mag} if 0.5 <= mag <= 1.5 else None
+
+    def grav_f32(off):
+        """v24/v12: three consecutive float32 (g) at off, off+4, off+8."""
+        if off + 12 > len(p):
+            return None
+        g = list(struct.unpack_from("<fff", p, off))
+        return _accept(g) if all(v == v and abs(v) < 1e6 for v in g) else None
+
+    def grav_i16(off):
+        """v25: three int16 scaled by 1/16384 (g) at off, off+2, off+4."""
         xs = [i16(off), i16(off + 2), i16(off + 4)]
         if any(v is None for v in xs):
             return None
-        g = [v * GRAVITY_SCALE for v in xs]
-        mag = (g[0] ** 2 + g[1] ** 2 + g[2] ** 2) ** 0.5
-        return {"x": g[0], "y": g[1], "z": g[2], "mag": mag} if 0.3 < mag < 3.0 else None
+        return _accept([v * GRAVITY_SCALE for v in xs])
 
     rec = {"version": ver, "unix": unix, "hr": None, "gravity": None}
     if ver in (24, 12):
         hr = p[17] if len(p) > 17 else 0
         rec["hr"] = hr or None
-        rec["gravity"] = grav(36)
-        rec["skin_temp_raw"] = i16(68)
-        if len(p) >= 68:
-            rec["spo2_red"], rec["spo2_ir"] = i16(64), i16(66)
+        rec["rr_count"] = p[18] if len(p) > 18 else None
+        rec["gravity"] = grav_f32(36)         # float32 x/y/z (g)
+        rec["skin_temp_raw"] = u16(68)
+        rec["spo2_red"], rec["spo2_ir"] = u16(64), u16(66)
+        rec["resp_raw"] = u16(76)
     elif ver == 25:
-        rec["gravity"] = grav(69)
+        rec["gravity"] = grav_i16(69)
     elif ver in (5, 7, 9):
         hr = p[17] if len(p) > 17 else 0
         rec["hr"] = hr or None
