@@ -38,9 +38,13 @@ import whoop_protocol_PWT as wp
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
-# START payloads to try in --sweep mode (single-bit masks + a few combos).
-PAYLOAD_SWEEP = [b"\x01", b"\x02", b"\x03", b"\x04", b"\x05", b"\x06", b"\x07",
-                 b"\x08", b"\x0f", b"\x1f", b"\xff", b"\x03\xff"]
+# START payloads to try in --sweep mode. Single bytes (01=HR baseline) plus
+# 2-byte combos that might carry a separate "raw" enable bit/mode (firmware logs
+# mention a disabled "Realtime raw" mode). We watch for a LIVE 0x2f stream.
+PAYLOAD_SWEEP = [b"\x01", b"\x02", b"\x03",
+                 b"\x01\x01", b"\x01\x02", b"\x02\x01", b"\x02\x02",
+                 b"\x01\x00", b"\x00\x01", b"\x03\x01", b"\x01\x03",
+                 b"\x01\x01\x01", b"\xff\xff"]
 
 
 def classify(frame: bytes):
@@ -182,8 +186,8 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
             else:
                 print("\nNo LIVE accel in this range (any 0x2f packets were historical dumps).")
         elif mode_sweep:
-            print("Sweeping START payloads — watching for NEW subtypes / higher rate.")
-            print("(Hold still so extra packets mean the payload, not your motion.)\n")
+            print("Probing START payloads for a LIVE raw (0x2f) stream.")
+            print("MOVE your wrist throughout — a live raw stream's values change with motion.\n")
             dwell = 5.0
             for pl in PAYLOAD_SWEEP:
                 state["key"] = None
@@ -202,9 +206,16 @@ async def run(address, mode_sweep, start_data, seconds, label, with_response,
                 total = sum(per.values())
                 summary = ", ".join(f"{k}={v}" for k, v in per.most_common()) or "(silence)"
                 rate = total / dwell
-                print(f"START 0x03 {pl.hex():<4} -> {rate:4.1f}/s  {summary}")
+                kinds = accel_seen.get(pl.hex(), set())
+                tag = ("   <<< LIVE RAW !!!" if "LIVE" in kinds
+                       else "   (accel, historical)" if "HIST" in kinds else "")
+                print(f"START 0x03 {pl.hex():<6} -> {rate:4.1f}/s  {summary}{tag}")
             state["key"] = None
             await send(wp.CMD_RT_HR_OFF)
+            live = [c for c, k in accel_seen.items() if "LIVE" in k]
+            print("\n*** LIVE RAW stream from payload(s): " + ", ".join(live)
+                  if live else
+                  "\nNo live raw stream from any payload (only HR / historical accel).")
         else:
             extra = f" + extra 0x{extra_cmd:02x}" if extra_cmd is not None else ""
             print(f"START 0x03 {start_data.hex()}{extra} ; streaming {seconds:.0f}s — "
