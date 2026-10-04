@@ -630,6 +630,17 @@ debug-string packet `decode_debuglog_PWT.py` reads, now correctly labelled.
 **Tool:** `ble_rawstream_PWT.py <ADDR>` — runs Phase A (live attempt) then Phase B
 (offload), decodes records live, logs everything to `logs/rawstream_*_PWT.jsonl`.
 
+**CONFIRMED on hardware (2026-10-04).** One run drained **2429 per-second records
+(v12, full DSP)** spanning ~38.9 min. Decoded and validated end-to-end:
+HR 42–80 bpm (mean 50); gravity vectors with **99% of |g| within 0.9–1.1 g** after
+the float32 fix; SpO2 raw red/IR paired (~575/576); `skin_temp_raw` 903 → **36.1 °C**;
+respiration raw present. Pipeline: `ble_rawstream_PWT.py` (capture) →
+`decode_rawstream_PWT.py` (→ per-second CSV) → `plot_rawstream_PWT.py` (→ offline
+self-contained HTML dashboard, no external requests, data never leaves the machine).
+Phase A stayed HR-only (type 0x28) with no live 0x33/0x2b — live IMU firehose
+confirmed absent on Gen4, as predicted. Absolute timestamps are the band's own
+(unset) clock; per-second ordering is exact.
+
 **Takeaway for the project:** continuous-hold stays on the **phone IMU** (always the
 plan — band motion is coarse/latent). The band's jobs are the **FLICK** trigger
 (EVENT channel, working) and **biometrics** (HR/RR live + banked gravity/PPG/SpO2/
