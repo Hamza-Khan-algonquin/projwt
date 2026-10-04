@@ -68,6 +68,24 @@ CMD_HELLO = 0x05           # handshake / keep-alive (send this FIRST)
 RT_START_PAYLOAD = bytes([0x01])
 RT_PACKET_TYPE = 0x28
 ACCEL_PACKET_TYPE = 0x2f   # 96-byte packets: accel X/Y/Z as float32 (g) at payload[36]
+
+# --- raw/IMU enable commands (from community RE: github.com/tanarchytan/whoop-rs) ---
+# All session-scoped, write no flash config, and are NOT in that project's forbidden
+# /destructive lists. Payload is [revision, state]; revision 0x01, state 1=on/0=off.
+CMD_SET_IMU_STREAM = 0x6A     # 106 — enable live IMU (accel+gyro) stream
+CMD_SEND_OPTICAL = 0x6B       # 107 — enable raw optical collection (v20 25Hz + v21 100Hz IMU)
+CMD_R10_R11_REALTIME = 0x3F   # 63  — richer realtime stream, payload [0x00]
+
+# --- live packet types (first payload byte) ---
+PKT_REALTIME_HR = 0x28        # 40 REALTIME_DATA (HR/RR)
+PKT_REALTIME_RAW = 0x2B       # 43 REALTIME_RAW_DATA
+PKT_EVENT = 0x30              # 48 EVENT (taps/motion)
+PKT_METADATA = 0x31           # 49 METADATA
+PKT_HISTORICAL = 0x32         # 50 HISTORICAL_DATA
+PKT_REALTIME_IMU = 0x33       # 51 REALTIME_IMU_DATA_STREAM (100 Hz 6-axis)
+# IMU scales (int16 -> units)
+IMU_ACCEL_SCALE_G = 1.0 / 4096.0
+IMU_GYRO_SCALE_DPS = 2000.0 / 32768.0
 COMMANDS = {
     "battery": CMD_GET_BATTERY,
     "info": CMD_GET_INFO,

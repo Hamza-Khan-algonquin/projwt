@@ -99,6 +99,7 @@ We drive it from Python.
 | `safety_state_machine_PWT.py` | **L3 fail-closed safety core** — pure logic, 7 unit tests, no hardware. |
 | `decode_realtime_PWT.py` | Decode a saved capture into heart rate + RR intervals (and CSV). |
 | `decode_debuglog_PWT.py` | Mine the band's own firmware debug-log strings (type `0x32`) from a capture. |
+| `ble_rawprobe_PWT.py` | Try the real raw/IMU enable commands (`0x6a`/`0x6b`/`0x3f`) and watch for live raw (`0x2b`/`0x33`). |
 
 Everything is committed to the private repo `Hamza-Khan-algonquin/projwt`,
 branch `claude/peaceful-dirac-ko6o1i`.
@@ -257,9 +258,14 @@ branch `claude/peaceful-dirac-ko6o1i`.
     tap threshold irrelevant. Built `decode_debuglog_PWT.py` to mine those strings
     for the command vocabulary. (Binary firmware patching is out of scope: signed,
     needs SWD/JTAG + key, bricking risk.)
-28. **← You are here.** Mine the firmware strings → probe an "enable realtime raw"
-    command. In parallel: wire live `FLICK` → state machine; phone-IMU hold source;
-    harmless IoT actuator to prove the pipeline.
+28. **Found the raw/IMU enable commands via community RE** (`tanarchytan/whoop-rs`,
+    MIT). The enables live ABOVE our swept range: `SET_IMU_DATA_STREAM 0x6a [01,01]`
+    (live 100 Hz IMU → type `0x33`) and `SEND_OPTICAL_DATA 0x6b [01,01]` (raw optical
+    + v21 IMU → some live as type `0x2b`). Both session-scoped/safe. Built
+    `ble_rawprobe_PWT.py` to enable each and watch for live `0x2b`/`0x33`. See §6.8c.
+29. **← You are here.** Run `ble_rawprobe_PWT.py` worn + moving → confirm live IMU on
+    Gen4. If it works: real live accel ⇒ proper gesture/continuous-hold from the band
+    itself. If not (R22/Gen5-gated): fall back to FLICK + phone-IMU per architecture.
 
 ---
 
@@ -381,6 +387,29 @@ Mined from `type 0x32` debug text during a `0x16` historical dump
 **Open question:** is `Realtime raw` exposable over BLE to a third party, or is it
 app-auth-gated / flash-only? Not determinable by black-box probing; the definitive
 answer is a BLE sniff of the official app (HCI snoop log). See §9.
+
+### 6.8c Command table + raw/IMU enable (from community RE)
+
+The MIT project `github.com/tanarchytan/whoop-rs` documents the full command set
+and confirms our framing exactly (Gen4: `0xAA`, CRC8 over length, inner
+`[type][seq][cmd]`, zlib-CRC32). Key opcodes we had NOT reached (our sweep stopped
+at `0x2f`):
+
+| Opcode | Name | Payload | Effect |
+|---|---|---|---|
+| `0x03` | TOGGLE_REALTIME_HR | `[01]` | HR/RR stream (what we use) |
+| `0x3f` (63) | SEND_R10_R11_REALTIME | `[00]` | richer realtime stream |
+| `0x6a` (106) | SET_IMU_DATA_STREAM | `[01, state]` | **live IMU (accel+gyro), 100 Hz 6-axis** |
+| `0x6b` (107) | SEND_OPTICAL_DATA | `[01, state]` | **raw optical v20 (25 Hz) + v21 IMU**; session-scoped, no flash write |
+
+Live packet types (first payload byte): `0x28` REALTIME_DATA(HR), **`0x2b`
+REALTIME_RAW_DATA**, `0x30` EVENT, `0x31` METADATA, `0x32` HISTORICAL,
+**`0x33` REALTIME_IMU_STREAM**. IMU scale: accel = int16 × 1/4096 g, gyro = int16 ×
+2000/32768 dps. (We actually saw `type0x2b.07` during the earlier opcode sweep and
+didn't recognise it.) `0x6a`/`0x6b`/`0x3f` are **not** in whoop-rs's forbidden/
+destructive lists → safe to probe. **This is the real path to live accel** — probed
+by `ble_rawprobe_PWT.py`. Caveat: the deepest v20/v21 buffers may want the band
+worn/asleep and R22 (Gen5-only); Gen4 live support is what the probe tests.
 
 ### 6.9 Live events — type `0x30` on `EVENT_CHAR` (`61080004`)
 
