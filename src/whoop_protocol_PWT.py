@@ -72,17 +72,30 @@ ACCEL_PACKET_TYPE = 0x2f   # 96-byte packets: accel X/Y/Z as float32 (g) at payl
 # --- raw/IMU enable commands (from community RE: github.com/tanarchytan/whoop-rs) ---
 # All session-scoped, write no flash config, and are NOT in that project's forbidden
 # /destructive lists. Payload is [revision, state]; revision 0x01, state 1=on/0=off.
-CMD_SET_IMU_STREAM = 0x6A     # 106 — enable live IMU (accel+gyro) stream
-CMD_SEND_OPTICAL = 0x6B       # 107 — enable raw optical collection (v20 25Hz + v21 100Hz IMU)
+CMD_SET_IMU_STREAM = 0x6A     # 106 — enable live IMU (accel+gyro) stream (Gen5/R22)
+CMD_SEND_OPTICAL = 0x6B       # 107 — enable raw optical collection ([revision,state], no ACK)
 CMD_R10_R11_REALTIME = 0x3F   # 63  — richer realtime stream, payload [0x00]
+# --- historical offload (the Gen4 path to banked raw: gravity/PPG/SpO2/temp) ---
+# raw is BANKED, not a live firehose on Gen4. Sequence: SEND_OPTICAL [01,01] (enable
+# collection, no ACK) -> SEND_HISTORICAL [00] (kick the drain) -> for each METADATA
+# HistoryEnd, write HISTORICAL_RESULT [01]+end_data so the strap advances -> stop on
+# HistoryComplete. ABORT cleanly cancels an in-flight drain.
+CMD_SEND_HISTORICAL = 0x16    # 22 — start historical drain, payload [0x00]
+CMD_HISTORICAL_RESULT = 0x17  # 23 — ACK a chunk: payload [0x01]+end_data(8) (write confirmed)
+CMD_ABORT_HISTORICAL = 0x14   # 20 — abort an in-flight historical drain
 
-# --- live packet types (first payload byte) ---
+# --- packet types (inner byte 0; VERIFIED against whoop-rs packet.rs) ---
 PKT_REALTIME_HR = 0x28        # 40 REALTIME_DATA (HR/RR)
-PKT_REALTIME_RAW = 0x2B       # 43 REALTIME_RAW_DATA
+PKT_REALTIME_RAW = 0x2B       # 43 REALTIME_RAW_DATA (some raw frames arrive live)
+PKT_HISTORICAL = 0x2F         # 47 HISTORICAL_DATA (banked records: v24/v25/v5 on Gen4)
 PKT_EVENT = 0x30              # 48 EVENT (taps/motion)
-PKT_METADATA = 0x31           # 49 METADATA
-PKT_HISTORICAL = 0x32         # 50 HISTORICAL_DATA
-PKT_REALTIME_IMU = 0x33       # 51 REALTIME_IMU_DATA_STREAM (100 Hz 6-axis)
+PKT_METADATA = 0x31           # 49 METADATA (HistoryStart/End/Complete)
+PKT_CONSOLE_LOGS = 0x32       # 50 CONSOLE_LOGS (firmware debug strings; NOT historical!)
+PKT_REALTIME_IMU = 0x33       # 51 REALTIME_IMU_DATA_STREAM (100 Hz 6-axis; Gen5/R22)
+# metadata subtypes (inner byte 2 of a METADATA frame)
+META_HISTORY_START = 1
+META_HISTORY_END = 2
+META_HISTORY_COMPLETE = 3
 # IMU scales (int16 -> units)
 IMU_ACCEL_SCALE_G = 1.0 / 4096.0
 IMU_GYRO_SCALE_DPS = 2000.0 / 32768.0
@@ -174,6 +187,55 @@ def parse_accel(data: bytes):
     historical = 1_500_000_000 < tsval < 2_200_000_000  # ~2017..2039 in unix secs
     return {"sub": p[1], "x": x, "y": y, "z": z, "mag": mag,
             "ts": tsval, "historical": historical}
+
+
+GRAVITY_SCALE = 1.0 / 16384.0   # i16 gravity vector -> g (Q1.14, 16384 == 1.0 g)
+
+
+def decode_historical(data: bytes):
+    """Decode a type-0x2f HISTORICAL_DATA record (WHOOP 4.0 / Gen4).
+
+    Offsets are INNER-relative (the inner record is [type][seq][cmd][payload...]),
+    pinned against real 4.0 captures in tanarchytan/whoop-rs (records/gen4.rs). The
+    record VERSION is carried in the seq byte (inner[1]):
+        v24/v12 : full DSP  -> HR, R-R, gravity@36, SpO2 red/IR@64/66, skin-temp@68, resp@76
+        v25     : PPG + gravity@69 (i16/16384), no per-second HR
+        v5/v7/v9: HR + R-R only
+    Returns a dict of whatever that version carries (missing fields -> None), or None
+    if the frame isn't a historical record.
+    """
+    import struct
+    p = unframe(data)
+    if p is None or len(p) < 11 or p[0] != PKT_HISTORICAL:
+        return None
+    ver = p[1]
+    unix = struct.unpack_from("<I", p, 7)[0]
+
+    def i16(off):
+        return struct.unpack_from("<h", p, off)[0] if off + 2 <= len(p) else None
+
+    def grav(off):
+        xs = [i16(off), i16(off + 2), i16(off + 4)]
+        if any(v is None for v in xs):
+            return None
+        g = [v * GRAVITY_SCALE for v in xs]
+        mag = (g[0] ** 2 + g[1] ** 2 + g[2] ** 2) ** 0.5
+        return {"x": g[0], "y": g[1], "z": g[2], "mag": mag} if 0.3 < mag < 3.0 else None
+
+    rec = {"version": ver, "unix": unix, "hr": None, "gravity": None}
+    if ver in (24, 12):
+        hr = p[17] if len(p) > 17 else 0
+        rec["hr"] = hr or None
+        rec["gravity"] = grav(36)
+        rec["skin_temp_raw"] = i16(68)
+        if len(p) >= 68:
+            rec["spo2_red"], rec["spo2_ir"] = i16(64), i16(66)
+    elif ver == 25:
+        rec["gravity"] = grav(69)
+    elif ver in (5, 7, 9):
+        hr = p[17] if len(p) > 17 else 0
+        rec["hr"] = hr or None
+    return rec
 
 
 EVENT_PACKET_TYPE = 0x30   # discrete events on EVENT_CHAR (taps/motion/status)

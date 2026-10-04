@@ -587,6 +587,57 @@ gesture recogniser built (`gesture_PWT.py`: TAP / DOUBLE_TAP / FLICK).
 
 ---
 
+## 9.9 Raw sensor data on Gen4 — what's real, and the bug that hid it
+
+**Goal of the night:** get live/raw sensor data (not just HR) off the WHOOP 4.0.
+
+**Finding 1 — the 100 Hz IMU firehose is Gen5-only.** Cross-checked against the
+MIT `tanarchytan/whoop-rs` decoders: the raw 100 Hz 6-axis IMU buffer (`v21`) and
+the 6-channel raw optical buffer (`v20`) are documented as *"5.0 / MG, shipped in
+the R22 deep buffers."* Gen4's historical record set (`records/gen4.rs`) is `v24`,
+`v25`, `v5` — **no v21/v20**. So a continuous 100 Hz accel/gyro stream off a 4.0
+is not exposed by this protocol. That's a hardware/firmware boundary, not a bug.
+
+**Finding 2 — Gen4 DOES bank real raw data; we were fetching it wrong.** Gen4
+records carry a lot: `v24` = HR, R-R, **gravity vector** (accel-derived
+orientation), SpO2 (raw red/IR ADC), skin-temp, respiration; `v25` = **PPG optical
+waveform + gravity**. These come over the *historical offload* path, and our first
+probe never triggered it. The correct sequence (from `whoop-rs` `client.rs` +
+`offload.rs`) is:
+
+| Step | Write | Why |
+|---|---|---|
+| 1 | `SEND_OPTICAL 0x6b [01,01]` | enable raw optical collection (**no ACK** is normal) |
+| 2 | `SEND_HISTORICAL 0x16 [00]` | **kick the drain** — the step we were missing |
+| 3 | per `METADATA` HistoryEnd -> `HISTORICAL_RESULT 0x17 [01]+end_data` | ACK each chunk so the strap advances instead of stalling |
+| 4 | stop on `METADATA` HistoryComplete; then `SEND_OPTICAL [01,00]` | finish; leave the band as we found it |
+
+Records arrive as **type `0x2f` HISTORICAL_DATA**; the version is in the seq byte
+(`inner[1]`): 24/25/5. `decode_historical()` in `whoop_protocol_PWT.py` decodes HR
+(`inner[17]`), gravity (i16/16384 at `inner[36]` v24 / `inner[69]` v25), SpO2,
+skin-temp — all inner-relative, matching the Gen4 offsets pinned to real 4.0
+captures upstream.
+
+**Packet-type bug fixed.** We had `PKT_HISTORICAL = 0x32`; the real value is
+**`0x2f` (47)**. `0x32` (50) is `CONSOLE_LOGS` — which is exactly the firmware
+debug-string packet `decode_debuglog_PWT.py` reads, now correctly labelled.
+
+**Also tested (Phase A long-shot):** HR-realtime-on -> `SET_IMU_DATA_STREAM
+0x6a [01,01]` to see whether live IMU (type `0x33`) flows while realtime HR runs
+(the flash path always sends them in that order). Expected to stay HR-only on a
+4.0; captured either way.
+
+**Tool:** `ble_rawstream_PWT.py <ADDR>` — runs Phase A (live attempt) then Phase B
+(offload), decodes records live, logs everything to `logs/rawstream_*_PWT.jsonl`.
+
+**Takeaway for the project:** continuous-hold stays on the **phone IMU** (always the
+plan — band motion is coarse/latent). The band's jobs are the **FLICK** trigger
+(EVENT channel, working) and **biometrics** (HR/RR live + banked gravity/PPG/SpO2/
+temp via offload) for the dashboard. The banked **gravity vector** is a genuine
+orientation signal we can use for coarse wrist-pose checks.
+
+---
+
 ## 10. Regenerating the PDF / Word versions
 
 This Markdown file is the master. The PDF and Word copies are generated from it
