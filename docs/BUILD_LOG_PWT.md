@@ -649,6 +649,51 @@ orientation signal we can use for coarse wrist-pose checks.
 
 ---
 
+## 9.10 Gesture control pipeline (gesture → safety → vehicle)
+
+The end-to-end control path, built so the actuator backend is swappable and the
+safety gate is identical no matter what's on the other end.
+
+```
+band flicks ─┐                                    ┌─ MockActuator   (today, no car)
+             ├─ gesture recognizer ─ SafetyFSM ─ dispatch ─ TeslaFleetActuator (discrete)
+keyboard sim ┘   (fail-closed, must ARM)          └─ (future) 2D car / UE5 for DRIVE
+```
+
+**Gesture vocabulary** (small + reliable, given the band's event set):
+- **double-flick** = ARM (open the command menu) / CONFIRM the current selection
+- **single flick** = cycle to the next command
+- **shake** (≥5 impulses) = PANIC: disarm instantly + send LOCK
+- **inactivity** (`--arm-timeout`, default 12 s) = auto-disarm
+
+**Safety gate:** while IDLE (disarmed) *no* vehicle command can fire — verified in
+the sim (a flick before arming is ignored). Built on `safety_state_machine_PWT.py`
+(fail-closed). The menu is **discrete, non-motion** commands only.
+
+**Why no gesture-driven motion/Summon:** Tesla exposes no third-party API for
+vehicle motion — Smart/Actually/Dumb Summon live only inside Tesla's own app
+behind its proximity + continuous-press interlocks, with zero programmatic hook.
+So "flick → car drives to me" has no endpoint to call, regardless of latency
+tolerance or failsafes, and faking those interlocks is out of scope. The DRIVE
+demo (continuous hold → motion) is therefore built against a **simulator** (2D
+first, then UE5), which also proves the continuous-hold loop more cleanly.
+
+**Files:**
+- `vehicle_actuator_PWT.py` — `VehicleActuator` base, `MockActuator`,
+  `TeslaFleetActuator` (REST via the signed-command proxy). Discrete command table;
+  motion/unknown commands are rejected. Self-test passes.
+- `gesture_control_PWT.py` — orchestrator. `--keyboard` runs the full pipeline with
+  no band and no car; band mode recognizes flicks live; `--backend tesla [--dry]`
+  targets a real car.
+- `docs/tesla_fleet_setup_PWT.md` — honest Fleet API setup (dev app, hosted public
+  key, partner + virtual-key pairing, OAuth, `tesla-http-proxy` signing, env vars).
+
+**Status:** pipeline works end-to-end today (sim + mock). Real-Tesla discrete is
+code-complete, pending the user's Fleet API credentials. DRIVE-by-hold (simulator)
+and gravity-pose arming are the next build.
+
+---
+
 ## 10. Regenerating the PDF / Word versions
 
 This Markdown file is the master. The PDF and Word copies are generated from it
