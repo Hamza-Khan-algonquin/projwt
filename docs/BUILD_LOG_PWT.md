@@ -688,9 +688,15 @@ first, then UE5), which also proves the continuous-hold loop more cleanly.
 - `docs/tesla_fleet_setup_PWT.md` — honest Fleet API setup (dev app, hosted public
   key, partner + virtual-key pairing, OAuth, `tesla-http-proxy` signing, env vars).
 
-**Status:** pipeline works end-to-end today (sim + mock). Real-Tesla discrete is
-code-complete, pending the user's Fleet API credentials. DRIVE-by-hold (simulator)
-and gravity-pose arming are the next build.
+**Status:** pipeline PROVEN end-to-end against the real car (2026-10-05). Fleet API
+app created, domain + hosted public key registered (partner_accounts), OAuth login
+done, vehicle found (2018 Model 3, online). A gesture-confirmed UNLOCK reached the
+car's cloud and returned HTTP 403 *"Tesla Vehicle Command Protocol required"* — i.e.
+the full chain (gesture → safety FSM → dispatch → Fleet API → vehicle) works; the
+car only requires the command to be SIGNED. Last mile: run `tesla-http-proxy`
+locally (signs with private-key.pem) + pair the virtual key, then point
+`TESLA_FLEET_BASE` at the proxy. Actuator already trusts the proxy's localhost
+self-signed cert. DRIVE-by-hold (simulator) + gravity-pose arming still to come.
 
 ---
 

@@ -125,12 +125,17 @@ class TeslaFleetActuator(VehicleActuator):
             print(f"    [TESLA dry-run] POST {url}  body={body}")
             return {"ok": True, "command": command, "backend": "tesla", "dry": True}
         data = json.dumps(body).encode()
+        # the local signing proxy serves a self-signed cert; trust it for localhost only
+        ctx = None
+        if "localhost" in self.base or "127.0.0.1" in self.base:
+            import ssl
+            ctx = ssl._create_unverified_context()
         req = urllib.request.Request(url, data=data, method="POST", headers={
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         })
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as resp:
                 payload = json.loads(resp.read().decode() or "{}")
             return {"ok": True, "command": command, "backend": "tesla", "response": payload}
         except urllib.error.HTTPError as e:
