@@ -148,23 +148,36 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
             except Exception:  # noqa: BLE001
                 pass
         await client.write_gatt_char(wp.CMD_CHAR_UUID, wp.build_packet(cmd=wp.CMD_HELLO), response=True)
+        # Keep the band in realtime/active sampling mode (green LED stays on). The
+        # firmware only samples motion while "awake", so without this you have to
+        # hard-tap to wake it; with it, normal wrist flicks register. Turned off on exit.
+        await client.write_gatt_char(wp.CMD_CHAR_UUID,
+            wp.build_packet(cmd=wp.CMD_RT_HR_ON, data=wp.RT_START_PAYLOAD), response=True)
         mode = "CALIBRATE (no commands)" if calibrate else f"Backend: {act.name}{' (dry-run)' if dry else ''}"
-        print(f"{mode}.  flick=cycle, double-flick=arm/confirm, shake=panic.  Ctrl+C to quit.\n")
-        while True:
-            now = time.monotonic()
-            if rec["flicks"] > 0 and (now - rec["last_flick"]) > multi_window:
-                n = rec["flicks"]
-                kind = "SHAKE" if n >= 3 else "DOUBLE_FLICK" if n == 2 else "FLICK"
-                print(f"   => {kind} ({n} flick{'s' if n > 1 else ''})")
-                if not calibrate:
-                    ctrl.on_gesture(kind, now)
-                rec["flicks"] = 0
-            ctrl.tick(now)
-            await asyncio.sleep(0.05)
-            try:
-                await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)  # keepalive
+        print(f"{mode}.  Band kept awake (LED on).  flick=cycle, double-flick=arm/confirm, "
+              f"shake=panic.  Ctrl+C to quit.\n")
+        try:
+            while True:
+                now = time.monotonic()
+                if rec["flicks"] > 0 and (now - rec["last_flick"]) > multi_window:
+                    n = rec["flicks"]
+                    kind = "SHAKE" if n >= 3 else "DOUBLE_FLICK" if n == 2 else "FLICK"
+                    print(f"   => {kind} ({n} flick{'s' if n > 1 else ''})")
+                    if not calibrate:
+                        ctrl.on_gesture(kind, now)
+                    rec["flicks"] = 0
+                ctrl.tick(now)
+                await asyncio.sleep(0.05)
+                try:
+                    await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)  # keepalive
+                except Exception:  # noqa: BLE001
+                    raise
+        finally:
+            try:  # stop realtime so the LED doesn't stay on after we quit
+                await client.write_gatt_char(wp.CMD_CHAR_UUID,
+                    wp.build_packet(cmd=wp.CMD_RT_HR_OFF), response=True)
             except Exception:  # noqa: BLE001
-                raise
+                pass
 
     for attempt in range(1, 5):
         try:
