@@ -30,7 +30,10 @@ import webbrowser
 from pathlib import Path
 
 AUTH = "https://auth.tesla.com/oauth2/v3"
+# user login (authorization_code) scopes:
 SCOPES = "openid offline_access vehicle_device_data vehicle_cmds vehicle_charging_cmds"
+# partner token (client_credentials) scopes: NO openid/offline_access:
+PARTNER_SCOPES = "vehicle_device_data vehicle_cmds vehicle_charging_cmds"
 TOKENS = Path(__file__).resolve().parent.parent / "secrets" / "tesla_tokens_PWT.json"
 
 
@@ -84,7 +87,7 @@ def partner_token():
         "grant_type": "client_credentials",
         "client_id": _env("TESLA_CLIENT_ID", required=True),
         "client_secret": _env("TESLA_CLIENT_SECRET", required=True),
-        "scope": SCOPES, "audience": base,
+        "scope": PARTNER_SCOPES, "audience": base,
     })
     return tok["access_token"], base
 
