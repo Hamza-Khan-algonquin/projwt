@@ -148,11 +148,19 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
             except Exception:  # noqa: BLE001
                 pass
         await client.write_gatt_char(wp.CMD_CHAR_UUID, wp.build_packet(cmd=wp.CMD_HELLO), response=True)
+        await asyncio.sleep(0.6)
+        try:
+            await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)  # settle the link
+        except Exception:  # noqa: BLE001
+            pass
         # Keep the band in realtime/active sampling mode (green LED stays on). The
         # firmware only samples motion while "awake", so without this you have to
         # hard-tap to wake it; with it, normal wrist flicks register. Turned off on exit.
-        await client.write_gatt_char(wp.CMD_CHAR_UUID,
-            wp.build_packet(cmd=wp.CMD_RT_HR_ON, data=wp.RT_START_PAYLOAD), response=True)
+        # Sent twice with a gap — a cold band sometimes ignores the first realtime write.
+        for _ in range(2):
+            await client.write_gatt_char(wp.CMD_CHAR_UUID,
+                wp.build_packet(cmd=wp.CMD_RT_HR_ON, data=wp.RT_START_PAYLOAD), response=True)
+            await asyncio.sleep(0.4)
         mode = "CALIBRATE (no commands)" if calibrate else f"Backend: {act.name}{' (dry-run)' if dry else ''}"
         print(f"{mode}.  Band kept awake (LED on).  flick=cycle, double-flick=arm/confirm, "
               f"shake=panic.  Ctrl+C to quit.\n")
