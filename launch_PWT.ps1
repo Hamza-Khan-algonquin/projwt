@@ -1,11 +1,10 @@
-# launch_PWT.ps1 — ProjWT one-command launcher (Windows / PowerShell)
+# launch_PWT.ps1 - ProjWT one-command launcher (Windows / PowerShell)
 #
 # Does everything: refreshes the Tesla token, starts the signing proxy (if not
 # already running), waits for it to listen, sets the env vars, and launches the
 # gesture controller against the band. On exit, stops the proxy it started.
 #
 # Run it:   powershell -ExecutionPolicy Bypass -File launch_PWT.ps1
-# or, from the repo root:   .\launch_PWT.ps1
 # Then: tap the band once to wake it, do your tap-code (2 taps arm, 2 taps confirm).
 #
 # ---- EDIT THESE IF YOUR PATHS DIFFER ---------------------------------------
@@ -24,13 +23,22 @@ $GestureArgs = @("--backend","tesla")
 $ErrorActionPreference = "Stop"
 
 function Test-Port($port) {
-    try { (New-Object Net.Sockets.TcpClient).Connect("localhost", $port); return $true }
-    catch { return $false }
+    try {
+        $c = New-Object Net.Sockets.TcpClient
+        $c.Connect("localhost", $port)
+        $c.Close()
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 # sanity: required files
 foreach ($f in @($ProxyExe, $TlsCert, $TlsKey, $SignKey)) {
-    if (-not (Test-Path $f)) { Write-Host "MISSING: $f  (edit the paths at the top of this script)" -ForegroundColor Red; exit 1 }
+    if (-not (Test-Path $f)) {
+        Write-Host "MISSING: $f  (edit the paths at the top of this script)" -ForegroundColor Red
+        exit 1
+    }
 }
 
 $env:TESLA_VEHICLE_TAG = $VIN
@@ -42,35 +50,41 @@ Write-Host "== ProjWT launch ==" -ForegroundColor Cyan
 # 1. refresh the access token (best-effort; needs TESLA_CLIENT_ID/SECRET set)
 Write-Host "Refreshing Tesla token..."
 python tesla_auth_PWT.py refresh 2>$null
-if ($LASTEXITCODE -ne 0) { Write-Host "  (refresh skipped — using saved token)" -ForegroundColor Yellow }
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  (refresh skipped - using saved token)" -ForegroundColor Yellow
+}
 
 # 2. start the signing proxy if it isn't already listening
 $proxyProc = $null
 if (Test-Port $ProxyPort) {
-    Write-Host "Proxy already running on :$ProxyPort."
+    Write-Host "Proxy already running on port $ProxyPort."
 } else {
-    Write-Host "Starting signing proxy on :$ProxyPort ..."
-    $proxyProc = Start-Process -FilePath $ProxyExe `
-        -ArgumentList @("-tls-key",$TlsKey,"-cert",$TlsCert,"-key-file",$SignKey,"-port","$ProxyPort") `
-        -PassThru -WindowStyle Minimized
+    Write-Host "Starting signing proxy on port $ProxyPort ..."
+    $proxyArgs = @("-tls-key", $TlsKey, "-cert", $TlsCert, "-key-file", $SignKey, "-port", "$ProxyPort")
+    $proxyProc = Start-Process -FilePath $ProxyExe -ArgumentList $proxyArgs -PassThru -WindowStyle Minimized
     for ($i = 0; $i -lt 25; $i++) {
         Start-Sleep -Milliseconds 400
         if (Test-Port $ProxyPort) { break }
     }
-    if (-not (Test-Port $ProxyPort)) { Write-Host "Proxy did not start — check cert/key paths." -ForegroundColor Red; exit 1 }
+    if (-not (Test-Port $ProxyPort)) {
+        Write-Host "Proxy did not start - check the cert/key paths." -ForegroundColor Red
+        exit 1
+    }
     Write-Host "Proxy up."
 }
 
 # 3. launch gesture control
 Write-Host ""
 Write-Host "Ready. Tap the band once to wake it, then: 2 taps = arm, 2 taps = confirm." -ForegroundColor Green
-Write-Host "Ctrl+C to quit.`n"
+Write-Host "Ctrl+C to quit."
+Write-Host ""
 try {
     python gesture_control_PWT.py $BandAddr @GestureArgs
 }
 finally {
     if ($proxyProc) {
         Stop-Process -Id $proxyProc.Id -ErrorAction SilentlyContinue
-        Write-Host "`nProxy stopped."
+        Write-Host ""
+        Write-Host "Proxy stopped."
     }
 }
