@@ -23,3 +23,10 @@ secrets/
 *private-key*.pem
 private-key.pem
 *.key
+
+# Account recovery / MFA — NEVER commit (store in a password manager)
+*BACKUP CODES*
+*backup*codes*
+# Office lock/temp files
+~$*
+*.tmp
