@@ -53,14 +53,16 @@ From the repo root, in PowerShell:
 powershell -ExecutionPolicy Bypass -File launch_PWT.ps1
 ```
 This refreshes the token, starts the signing proxy, waits for it, sets the env vars,
-and launches gesture control. Then:
+and launches gesture control. Band control is **tap-to-cycle, pause-to-confirm**
+(robust to tap bounce — counting taps isn't):
 
-1. **Tap the band once** (firm) to wake it — you'll feel a "ready" buzz.
-2. **Two taps** = ARM (buzz).
-3. **One tap** = cycle the command menu (the on-screen menu shows the current one).
-4. **Two taps** = CONFIRM → the car does it.
-5. **Three+ taps** = PANIC → locks + disarms.
+1. **Tap the band once** (firm) to wake it — you feel a "ready" buzz; it arms and
+   shows `[UNLOCK]`.
+2. **Each tap** advances the menu: `UNLOCK → LOCK → FLASH → HONK → … → CANCEL`.
+3. **Pause ~2.5s** on the command you want → it fires (confirm buzz). Then it disarms.
+4. Cycle to **`[CANCEL]`** and pause to back out safely (does nothing).
 
+So: unlock = one tap, wait. Lock = tap, tap, wait. Tune the pause with `--dwell N`.
 Edit the paths/VIN/band address at the top of `launch_PWT.ps1` if yours differ.
 
 ---
@@ -91,8 +93,8 @@ python gesture_control_PWT.py D1:86:73:D4:62:86 --calibrate
 ```
 - Each tap prints its strength; `·weak NNNN` means it's below the threshold.
 - Set `--strength` just under your comfortable light-tap number (default 2200).
-- `--flick-gap` (0.28) = impulses within this window are the same tap (ringing).
-- `--multi-window` (0.6) = wait this long after the last tap before deciding.
+- `--flick-gap` (0.30) = impulses within this window are the same tap (debounce).
+- `--dwell` (2.5) = pause this long on a command (no taps) to confirm it.
 - `--no-haptics` disables the buzz; `--backend mock` runs with no car.
 
 Tip: tapping the **band face** (or the band against a table edge) is far easier on

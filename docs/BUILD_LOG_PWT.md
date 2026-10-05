@@ -722,10 +722,15 @@ light taps register. Calibration on the user's wrist showed noise under ~1600 an
 intentional light taps ~2400+, so the default `--strength` is 2200; `--calibrate`
 prints strengths with no commands sent.
 
-**Flick/tap recognizer rebuilt** with two-level timing: a refractory window
-(`--flick-gap` 0.28 s) collapses one tap's ringing into a single tap, then a
-`--multi-window` (0.6 s) groups distinct taps → 1 = FLICK, 2 = DOUBLE_FLICK, 3+ =
-SHAKE. This fixed "a single flick read as a double, a double read as two singles."
+**Band interaction = tap-to-cycle, pause-to-confirm** (the model that actually
+works). Counting taps (1/2/3) misfired because taps bounce: a double-tap's ringing
+added a phantom 3rd tap → read as SHAKE → accidental panic. The robust model: each
+debounced tap (`--flick-gap` 0.30 s collapses one tap's ringing) advances a menu;
+**pausing `--dwell` (2.5 s) on a command fires it**. Bounce can only over-advance the
+menu (recoverable, and visible on screen) — it can never trigger the wrong action or
+panic. The menu ends in `CANCEL` so a dwell can back out safely. Confirmed on the
+real car: tap to `[UNLOCK]`/`[LOCK]`/`[FLASH]`/`[HONK]`, pause, command sent — clean
+every time, comfortable taps, no misfires.
 
 **Haptic feedback.** The WHOOP 4.0 has a buzz motor; drive it via
 `RUN_HAPTICS_PATTERN` (opcode 79, body `[pattern, loops, 0,0,0]`, pattern 2 = the 4.0

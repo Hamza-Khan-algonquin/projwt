@@ -75,7 +75,7 @@ if (Test-Port $ProxyPort) {
 
 # 3. launch gesture control
 Write-Host ""
-Write-Host "Ready. Tap the band once to wake it, then: 2 taps = arm, 2 taps = confirm." -ForegroundColor Green
+Write-Host "Ready. Tap to wake+arm, tap to cycle the menu, pause ~2.5s on a command to do it." -ForegroundColor Green
 Write-Host "Ctrl+C to quit."
 Write-Host ""
 try {
