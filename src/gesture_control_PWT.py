@@ -242,8 +242,8 @@ def main():
     p.add_argument("--keyboard", action="store_true", help="keyboard sim (no band, no car)")
     p.add_argument("--backend", default="mock", choices=["mock", "tesla"])
     p.add_argument("--dry", action="store_true", help="tesla backend: print requests, don't send")
-    p.add_argument("--strength", type=int, default=3000,
-                   help="band: min impulse strength to count as a tap/flick (default 3000)")
+    p.add_argument("--strength", type=int, default=2200,
+                   help="band: min impulse strength to count as a tap/flick (default 2200)")
     p.add_argument("--flick-gap", type=float, default=0.28,
                    help="band: impulses within this many s = same flick (ringing). default 0.28")
     p.add_argument("--multi-window", type=float, default=0.6,
