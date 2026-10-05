@@ -84,6 +84,11 @@ CMD_SEND_HISTORICAL = 0x16    # 22 — start historical drain, payload [0x00]
 CMD_HISTORICAL_RESULT = 0x17  # 23 — ACK a chunk: payload [0x01]+end_data(8) (write confirmed)
 CMD_ABORT_HISTORICAL = 0x14   # 20 — abort an in-flight historical drain
 
+# --- haptics (the buzz motor) ---  Gen4 preset buzz, from whoop-rs haptic.rs
+CMD_RUN_HAPTICS = 0x4F        # 79 — body [pattern_id, loops, 0, 0, 0]
+CMD_STOP_HAPTICS = 0x7A       # 122 — stop an in-progress buzz
+HAPTIC_ALARM_PATTERN = 2      # the 4.0 graduated-alarm buzz preset
+
 # --- packet types (inner byte 0; VERIFIED against whoop-rs packet.rs) ---
 PKT_REALTIME_HR = 0x28        # 40 REALTIME_DATA (HR/RR)
 PKT_REALTIME_RAW = 0x2B       # 43 REALTIME_RAW_DATA (some raw frames arrive live)

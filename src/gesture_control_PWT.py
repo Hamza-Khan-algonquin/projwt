@@ -51,6 +51,14 @@ class GestureController:
         self.sel = 0
         self.arm_timeout = arm_timeout
         self.last_activity = 0.0
+        self.buzzes = []            # haptic feedback tokens for the band to drain
+
+    def _buzz(self, token):
+        self.buzzes.append(token)
+
+    def take_buzzes(self):
+        out, self.buzzes = self.buzzes, []
+        return out
 
     def _announce_menu(self):
         print(f"    ARMED — menu: [{COMMAND_MENU[self.sel].upper()}]  "
@@ -66,6 +74,7 @@ class GestureController:
                 self._drain("")
                 self.sel = 0
                 self._announce_menu()
+                self._buzz("arm")            # one buzz = you're armed
             # any other gesture while disarmed is ignored (the safety gate)
             return
 
@@ -75,16 +84,21 @@ class GestureController:
             self.act.dispatch("lock")
             self.fsm.gesture(PANIC_GESTURE, t)      # -> STOP/IDLE
             self._drain("panic")
+            self._buzz("panic")              # long buzz = panic/locked
             return
         if kind == "FLICK":
             self.sel = (self.sel + 1) % len(COMMAND_MENU)
             self._announce_menu()
+            self._buzz("tick")               # short blip = menu advanced
             return
         if kind == CONFIRM_GESTURE:                  # double-flick while armed = confirm
             cmd = COMMAND_MENU[self.sel]
             print(f"    CONFIRM -> {cmd.upper()}")
             res = self.act.dispatch(cmd)
-            if not res.get("ok"):
+            if res.get("ok"):
+                self._buzz("ok")             # two buzzes = command sent
+            else:
+                self._buzz("err")            # buzz pattern = command failed
                 print(f"      (vehicle backend: {res.get('error')}"
                       + (f" | {res['detail']}" if res.get("detail") else "") + ")")
             return
@@ -97,6 +111,7 @@ class GestureController:
             print(f"    (inactive {self.arm_timeout:.0f}s) auto-disarm")
             self.fsm.gesture(PANIC_GESTURE, t)
             self._drain("")
+            self._buzz("off")                # one buzz = disarmed
 
     def _drain(self, _why):
         for ev in self.fsm.drain():
@@ -113,8 +128,13 @@ class GestureController:
 #      flicks in the group decides the gesture (1=FLICK, 2=DOUBLE_FLICK, 3+=SHAKE)
 # Every motion event prints its strength so you can calibrate --strength.
 # --------------------------------------------------------------------------- #
+# haptic feedback patterns: token -> (pattern_id, loops)
+BUZZ = {"hello": (2, 1), "arm": (2, 1), "tick": (2, 1), "ok": (2, 2),
+        "err": (2, 3), "panic": (2, 4), "off": (2, 1)}
+
+
 async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
-                   backend, dry, calibrate):
+                   backend, dry, calibrate, haptics):
     import whoop_protocol_PWT as wp
     from bleak import BleakClient
     from gesture_PWT import strength_of  # reuse the tuned strength heuristic
@@ -122,6 +142,7 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
     act = make_actuator(backend, dry=dry)
     ctrl = GestureController(act, arm_timeout=arm_timeout)
     rec = {"flicks": 0, "last_impulse": -1e9, "last_flick": -1e9, "peak": 0}
+    hseq = {"n": 0}
 
     def handler(_s, payload):
         ev = wp.parse_event(bytes(payload))
@@ -140,6 +161,18 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
             rec["peak"] = max(rec["peak"], s)
         rec["last_impulse"] = now
         rec["last_flick"] = now
+
+    async def send_buzz(client, token):
+        if not haptics:
+            return
+        p, loops = BUZZ.get(token, (2, 1))
+        try:
+            await client.write_gatt_char(wp.CMD_CHAR_UUID,
+                wp.build_packet(cmd=wp.CMD_RUN_HAPTICS, seq=hseq["n"] & 0xFF,
+                                data=bytes([p, loops, 0, 0, 0])), response=True)
+            hseq["n"] += 1
+        except Exception:  # noqa: BLE001
+            pass
 
     async def session(client):
         for uuid in wp.NOTIFY_CHARS:
@@ -165,6 +198,7 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
         print(f"{mode}.  TAP the band face (easier than flicking): 1 tap=cycle, "
               f"2 taps=arm/confirm, 3+=panic.\n  First tap firm to wake it, then light taps "
               f"register.  Ctrl+C to quit.\n")
+        await send_buzz(client, "hello")   # one buzz = connected + ready
         try:
             while True:
                 now = time.monotonic()
@@ -176,6 +210,8 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
                         ctrl.on_gesture(kind, now)
                     rec["flicks"] = 0
                 ctrl.tick(now)
+                for tok in ctrl.take_buzzes():     # feel confirmations on the wrist
+                    await send_buzz(client, tok)
                 await asyncio.sleep(0.05)
                 try:
                     await client.read_gatt_char(wp.BATTERY_LEVEL_UUID)  # keepalive
@@ -251,6 +287,8 @@ def main():
     p.add_argument("--arm-timeout", type=float, default=12.0, help="auto-disarm after N idle s")
     p.add_argument("--calibrate", action="store_true",
                    help="band: print flick strengths/counts but send NO commands (safe tuning)")
+    p.add_argument("--no-haptics", action="store_true",
+                   help="band: disable the buzz feedback (arm/confirm/panic)")
     args = p.parse_args()
 
     if args.keyboard or not args.address:
@@ -259,7 +297,7 @@ def main():
         try:
             asyncio.run(run_band(args.address, args.strength, args.flick_gap,
                                  args.multi_window, args.arm_timeout, args.backend,
-                                 args.dry, args.calibrate))
+                                 args.dry, args.calibrate, not args.no_haptics))
         except KeyboardInterrupt:
             print("\nStopped.")
 
