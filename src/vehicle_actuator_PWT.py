@@ -90,11 +90,24 @@ class TeslaFleetActuator(VehicleActuator):
 
     def __init__(self, token: str | None = None, vehicle_tag: str | None = None,
                  base_url: str | None = None, timeout: float = 15.0, dry: bool = False):
-        self.token = token or os.environ.get("TESLA_FLEET_TOKEN", "")
+        self.token = token or os.environ.get("TESLA_FLEET_TOKEN", "") or self._token_from_file()
         self.tag = vehicle_tag or os.environ.get("TESLA_VEHICLE_TAG", "")
-        self.base = (base_url or os.environ.get("TESLA_FLEET_BASE", "")).rstrip("/")
+        # default base: the signing proxy (Model 3/Y etc. require signed commands)
+        self.base = (base_url or os.environ.get("TESLA_FLEET_BASE", "")
+                     or "https://localhost:4443").rstrip("/")
         self.timeout = timeout
         self.dry = dry
+
+    @staticmethod
+    def _token_from_file() -> str:
+        """Fall back to the access token saved by tesla_auth_PWT.py login."""
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            p = _Path(__file__).resolve().parent.parent / "secrets" / "tesla_tokens_PWT.json"
+            return _json.loads(p.read_text()).get("access_token", "") if p.exists() else ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     def ready(self) -> tuple[bool, str]:
         missing = [n for n, v in [("TESLA_FLEET_TOKEN", self.token),
