@@ -44,10 +44,23 @@ BAND_MENU = ["unlock", "lock", "flash", "honk", "frunk", "climate_warm",
 ARM_GESTURE, CONFIRM_GESTURE, PANIC_GESTURE = "DOUBLE_FLICK", "DOUBLE_FLICK", "SHAKE"
 
 
+def load_webhooks():
+    """Optional secrets/webhooks_PWT.json: {"menu_name": "https://...", ...}.
+    Each becomes a tap-menu item that POSTs to its URL (e.g. an Apple Shortcut
+    that texts a contact, or a smart-home trigger). Gitignored."""
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(__file__).resolve().parent.parent / "secrets" / "webhooks_PWT.json"
+    try:
+        return _json.loads(p.read_text()) if p.exists() else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 class GestureController:
     """Maps recognized gestures to armed-gated vehicle commands via the safety FSM."""
 
-    def __init__(self, actuator, arm_timeout=12.0):
+    def __init__(self, actuator, arm_timeout=12.0, webhooks=None):
         self.act = actuator
         cfg = SafetyConfig(arm_gesture=ARM_GESTURE, disarm_gesture=PANIC_GESTURE,
                            arm_timeout=max(arm_timeout + 5, 15))
@@ -56,6 +69,20 @@ class GestureController:
         self.arm_timeout = arm_timeout
         self.last_activity = 0.0
         self.buzzes = []            # haptic feedback tokens for the band to drain
+        self.webhooks = webhooks or {}   # menu-name -> URL (tap fires an HTTP POST)
+
+    def _fire_webhook(self, name):
+        """POST to a configured URL — e.g. an Apple Shortcut that texts a contact."""
+        import json as _json
+        import urllib.request as _u
+        url = self.webhooks[name]
+        try:
+            req = _u.Request(url, data=_json.dumps({"from": "ProjWT", "action": name}).encode(),
+                             method="POST", headers={"Content-Type": "application/json"})
+            _u.urlopen(req, timeout=10)
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
 
     def _buzz(self, token):
         self.buzzes.append(token)
@@ -92,6 +119,12 @@ class GestureController:
             if cmd == "cancel":
                 print("    (paused on CANCEL) -> disarmed")
                 self._buzz("off")
+            elif cmd in self.webhooks:
+                print(f"    CONFIRM (held on [{cmd.upper()}]) -> firing webhook")
+                res = self._fire_webhook(cmd)
+                self._buzz("ok" if res.get("ok") else "err")
+                if not res.get("ok"):
+                    print(f"      (webhook failed: {res.get('error')})")
             else:
                 print(f"    CONFIRM (held on [{cmd.upper()}]) -> sending")
                 res = self.act.dispatch(cmd)
@@ -178,13 +211,13 @@ BUZZ = {"hello": (2, 1), "arm": (2, 1), "tick": (2, 1), "ok": (2, 2),
 
 
 async def run_band(address, strength_min, flick_gap, dwell, arm_timeout,
-                   backend, dry, calibrate, haptics):
+                   backend, dry, calibrate, haptics, webhooks=None):
     import whoop_protocol_PWT as wp
     from bleak import BleakClient
     from gesture_PWT import strength_of  # reuse the tuned strength heuristic
 
     act = make_actuator(backend, dry=dry)
-    ctrl = GestureController(act, arm_timeout=arm_timeout)
+    ctrl = GestureController(act, arm_timeout=arm_timeout, webhooks=webhooks)
     ctrl.confirm_dwell = dwell
     rec = {"taps": 0, "last_impulse": -1e9}
     hseq = {"n": 0}
@@ -333,13 +366,21 @@ def main():
                    help="band: disable the buzz feedback (arm/confirm/panic)")
     args = p.parse_args()
 
+    # optional webhook menu items (e.g. an Apple Shortcut that texts a contact)
+    hooks = load_webhooks()
+    if hooks:
+        for name in hooks:
+            if name not in BAND_MENU:
+                BAND_MENU.insert(-1, name)   # before 'cancel'
+        print(f"Webhooks loaded: {', '.join(hooks)}")
+
     if args.keyboard or not args.address:
         run_keyboard(args.arm_timeout, args.backend, args.dry)
     else:
         try:
             asyncio.run(run_band(args.address, args.strength, args.flick_gap,
                                  args.dwell, args.arm_timeout, args.backend,
-                                 args.dry, args.calibrate, not args.no_haptics))
+                                 args.dry, args.calibrate, not args.no_haptics, hooks))
         except KeyboardInterrupt:
             print("\nStopped.")
 
