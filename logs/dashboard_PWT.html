@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ProjWT Dashboard</title>
+<style>
+ :root{color-scheme:dark;--bg:#0b0e16;--panel:#151a28;--ink:#e8edf7;--mut:#8894ad;
+   --ok:#80ffdb;--warn:#ffd166;--bad:#ff5d73;--hr:#ff5d73;--acc:#4cc9f0;--grid:#232a3d}
+ *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+   font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:22px;max-width:900px;margin:auto}
+ h1{font-size:20px;margin:0 0 2px}.sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+ h2{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:22px 0 10px}
+ .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+ .tile{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:14px 16px}
+ .tile .k{color:var(--mut);font-size:12px}.tile .v{font-size:26px;font-weight:600;margin-top:4px}
+ .tile .u{font-size:13px;color:var(--mut);font-weight:400}
+ .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+ .card{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:14px 16px;margin-top:12px}
+ canvas{width:100%;height:150px;display:block}.err{color:var(--warn)}
+ footer{color:var(--mut);font-size:12px;margin-top:22px}
+</style></head><body>
+<h1>ProjWT Dashboard</h1><div class="sub" id="asof"></div>
+<h2>Vehicle</h2><div class="grid" id="car"></div>
+<h2>Smart climate</h2><div class="card" id="climate"></div>
+<h2>Biometrics</h2><div class="grid" id="bio"></div>
+<div class="card"><div class="k" style="color:var(--mut);font-size:12px">Heart rate (recent)</div>
+<canvas id="hr"></canvas></div>
+<footer>Car data: Tesla Fleet API (signed). Biometrics: decoded from the WHOOP band. Private - not for sharing.</footer>
+<script>
+const D = {"asof": "2026-10-05 03:22 UTC", "car": {"ok": false, "error": "missing: TESLA_FLEET_TOKEN, TESLA_VEHICLE_TAG"}, "bio": null, "climate": null};
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+document.getElementById('asof').textContent = "as of " + D.asof;
+function tiles(el, items){document.getElementById(el).innerHTML = items.map(t=>
+  `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}<span class="u"> ${t[2]||''}</span></div></div>`).join('');}
+if(D.car && D.car.ok){
+  const c=D.car, lock = c.locked? '<span class="pill" style="background:#16351f;color:var(--ok)">LOCKED</span>'
+                               : '<span class="pill" style="background:#3a1620;color:var(--bad)">UNLOCKED</span>';
+  tiles('car',[['Battery', c.battery??'--','%'],['Range', c.range_km??'--','km'],
+    ['Inside', c.inside_c??'--','C'],['Outside', c.outside_c??'--','C'],
+    ['Set to', c.set_c??'--','C'],['Charging', c.charging||'--','']]);
+  document.getElementById('car').insertAdjacentHTML('beforeend',
+    `<div class="tile"><div class="k">Doors</div><div class="v" style="font-size:16px;margin-top:8px">${lock}</div></div>`);
+} else {
+  document.getElementById('car').innerHTML = `<div class="tile err">No live car data (${(D.car&&D.car.error)||'proxy/env not set'}). Start the proxy + set TESLA_VEHICLE_TAG/BASE.</div>`;
+}
+const cl=D.climate;
+document.getElementById('climate').innerHTML = cl
+  ? `Body <b>${cl.skin}C</b> + outside <b>${cl.outside}C</b> &rarr; suggested cabin <b style="color:var(--acc)">${cl.target}C</b>`
+  : `<span class="err">Need a biometrics capture (skin temp) for a recommendation.</span>`;
+if(D.bio){
+  tiles('bio',[['Heart rate', D.bio.hr_now??'--','bpm'],['HR range', (D.bio.hr_min??'--')+'-'+(D.bio.hr_max??'--'),'bpm'],
+    ['Skin temp', D.bio.skin??'--','C']]);
+}
+function sparkline(id, data, color){
+  if(!data||!data.length) return;
+  const c=document.getElementById(id),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
+  c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+  let lo=Math.min(...data),hi=Math.max(...data);if(lo===hi){lo--;hi++;}
+  x.strokeStyle=css(color);x.lineWidth=1.8;x.beginPath();
+  data.forEach((v,i)=>{const px=w*i/(data.length-1),py=8+(h-16)*(1-(v-lo)/(hi-lo));i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.stroke();
+}
+addEventListener('resize',()=>sparkline('hr',D.bio&&D.bio.hr,'--hr'));
+sparkline('hr',D.bio&&D.bio.hr,'--hr');
+</script></body></html>
