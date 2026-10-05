@@ -688,15 +688,26 @@ first, then UE5), which also proves the continuous-hold loop more cleanly.
 - `docs/tesla_fleet_setup_PWT.md` — honest Fleet API setup (dev app, hosted public
   key, partner + virtual-key pairing, OAuth, `tesla-http-proxy` signing, env vars).
 
-**Status:** pipeline PROVEN end-to-end against the real car (2026-10-05). Fleet API
-app created, domain + hosted public key registered (partner_accounts), OAuth login
-done, vehicle found (2018 Model 3, online). A gesture-confirmed UNLOCK reached the
-car's cloud and returned HTTP 403 *"Tesla Vehicle Command Protocol required"* — i.e.
-the full chain (gesture → safety FSM → dispatch → Fleet API → vehicle) works; the
-car only requires the command to be SIGNED. Last mile: run `tesla-http-proxy`
-locally (signs with private-key.pem) + pair the virtual key, then point
-`TESLA_FLEET_BASE` at the proxy. Actuator already trusts the proxy's localhost
-self-signed cert. DRIVE-by-hold (simulator) + gravity-pose arming still to come.
+**Status: ✅ WORKING — gesture-confirmed UNLOCK executed on the real car (2026-10-05).**
+Full chain proven end to end: gesture → fail-closed safety FSM → dispatch →
+`tesla-http-proxy` (signs with `private-key.pem`) → Tesla Fleet API → 2018 Model 3.
+The car negotiated sessions with DOMAIN_INFOTAINMENT + DOMAIN_VEHICLE_SECURITY and
+returned **200 OK** on the signed `door_unlock`. Setup that got here: Fleet API app
++ OAuth (authorization-code), domain + hosted EC public key registered via
+`partner_accounts`, virtual key paired to the car, signed commands via the local
+proxy (TESLA_FLEET_BASE=https://localhost:4443), **VIN** (not the Fleet API id) as
+the vehicle tag in the command path.
+
+Gotchas hit + fixed along the way: client secret truncated on hand-copy (use a
+verified full copy); partner token must drop openid/offline_access scopes; GitHub
+user-site Pages needs `.nojekyll` or the `.well-known` key 404s; `go install` fails
+on this repo's replace directives (clone + `go build` instead); Git Bash mangles
+`-subj "/CN=..."` (prefix `MSYS_NO_PATHCONV=1`); the signing proxy requires the VIN
+in the path, not the numeric id.
+
+Next: wire real band FLICKs into this (replace keyboard sim), extend the menu
+(lock/flash/honk/frunk/climate), the DRIVE-by-hold simulator demo, and gravity-pose
+arming.
 
 ---
 
