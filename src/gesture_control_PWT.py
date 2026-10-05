@@ -162,8 +162,9 @@ async def run_band(address, strength_min, flick_gap, multi_window, arm_timeout,
                 wp.build_packet(cmd=wp.CMD_RT_HR_ON, data=wp.RT_START_PAYLOAD), response=True)
             await asyncio.sleep(0.4)
         mode = "CALIBRATE (no commands)" if calibrate else f"Backend: {act.name}{' (dry-run)' if dry else ''}"
-        print(f"{mode}.  Band kept awake (LED on).  flick=cycle, double-flick=arm/confirm, "
-              f"shake=panic.  Ctrl+C to quit.\n")
+        print(f"{mode}.  TAP the band face (easier than flicking): 1 tap=cycle, "
+              f"2 taps=arm/confirm, 3+=panic.\n  First tap firm to wake it, then light taps "
+              f"register.  Ctrl+C to quit.\n")
         try:
             while True:
                 now = time.monotonic()
@@ -241,8 +242,8 @@ def main():
     p.add_argument("--keyboard", action="store_true", help="keyboard sim (no band, no car)")
     p.add_argument("--backend", default="mock", choices=["mock", "tesla"])
     p.add_argument("--dry", action="store_true", help="tesla backend: print requests, don't send")
-    p.add_argument("--strength", type=int, default=4500,
-                   help="band: min impulse strength to count as a flick (default 4500)")
+    p.add_argument("--strength", type=int, default=3000,
+                   help="band: min impulse strength to count as a tap/flick (default 3000)")
     p.add_argument("--flick-gap", type=float, default=0.28,
                    help="band: impulses within this many s = same flick (ringing). default 0.28")
     p.add_argument("--multi-window", type=float, default=0.6,
