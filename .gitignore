@@ -16,3 +16,10 @@ logs/*.log
 .DS_Store
 .vscode/
 .idea/
+
+# Tesla / auth secrets — NEVER commit
+secrets/
+*tesla_tokens*.json
+*private-key*.pem
+private-key.pem
+*.key
