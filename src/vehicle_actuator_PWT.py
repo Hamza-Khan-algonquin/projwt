@@ -43,6 +43,24 @@ TESLA_COMMANDS = {
     "climate_off":   ("auto_conditioning_stop", {}),
     "charge_start":  ("charge_start", {}),
     "charge_stop":   ("charge_stop", {}),
+    # --- cool extras (all discrete, non-motion) ---
+    "climate_warm":  ("set_temps", {"driver_temp": 24.0, "passenger_temp": 24.0}),
+    "climate_cool":  ("set_temps", {"driver_temp": 19.0, "passenger_temp": 19.0}),
+    "defrost_on":    ("set_preconditioning_max", {"on": True}),
+    "defrost_off":   ("set_preconditioning_max", {"on": False}),
+    "seat_heat_on":  ("remote_seat_heater_request", {"seat_position": 0, "level": 3}),
+    "seat_heat_off": ("remote_seat_heater_request", {"seat_position": 0, "level": 0}),
+    "charge_port_open":  ("charge_port_door_open", {}),
+    "charge_port_close": ("charge_port_door_close", {}),
+    "charge_80":     ("set_charge_limit", {"percent": 80}),
+    "charge_90":     ("set_charge_limit", {"percent": 90}),
+    "charge_100":    ("set_charge_limit", {"percent": 100}),
+    "sentry_on":     ("set_sentry_mode", {"on": True}),
+    "sentry_off":    ("set_sentry_mode", {"on": False}),
+    "boombox":       ("remote_boombox", {"sound": 0}),
+    "media_toggle":  ("media_toggle_playback", {}),
+    "remote_start":  ("remote_start_drive", {}),   # enables keyless driving (no motion)
+    "fart":          ("remote_boombox", {"sound": 2}),
 }
 KNOWN_COMMANDS = tuple(TESLA_COMMANDS.keys())
 
@@ -115,34 +133,57 @@ class TeslaFleetActuator(VehicleActuator):
                                   ("TESLA_FLEET_BASE", self.base)] if not v]
         return (not missing, "missing: " + ", ".join(missing) if missing else "ready")
 
-    def _do(self, command: str) -> dict:
-        path, body = TESLA_COMMANDS[command]
-        ok, why = self.ready()
-        if not ok:
-            return {"ok": False, "command": command, "error": why}
-        url = f"{self.base}/api/1/vehicles/{self.tag}/command/{path}"
-        if self.dry:
-            print(f"    [TESLA dry-run] POST {url}  body={body}")
-            return {"ok": True, "command": command, "backend": "tesla", "dry": True}
-        data = json.dumps(body).encode()
+    def _ctx(self):
         # the local signing proxy serves a self-signed cert; trust it for localhost only
-        ctx = None
         if "localhost" in self.base or "127.0.0.1" in self.base:
             import ssl
-            ctx = ssl._create_unverified_context()
-        req = urllib.request.Request(url, data=data, method="POST", headers={
+            return ssl._create_unverified_context()
+        return None
+
+    def _request(self, url, data=None, method="GET"):
+        req = urllib.request.Request(url, data=data, method=method, headers={
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         })
+        with urllib.request.urlopen(req, timeout=self.timeout, context=self._ctx()) as resp:
+            return json.loads(resp.read().decode() or "{}")
+
+    def _do(self, command: str) -> dict:
+        path, body = TESLA_COMMANDS[command]
+        return self.raw_command(path, body, label=command)
+
+    def raw_command(self, path: str, body: dict, label: str = "") -> dict:
+        """POST any Fleet API command/<path> with a JSON body (for parameterized cmds)."""
+        label = label or path
+        ok, why = self.ready()
+        if not ok:
+            return {"ok": False, "command": label, "error": why}
+        url = f"{self.base}/api/1/vehicles/{self.tag}/command/{path}"
+        if self.dry:
+            print(f"    [TESLA dry-run] POST {url}  body={body}")
+            return {"ok": True, "command": label, "backend": "tesla", "dry": True}
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as resp:
-                payload = json.loads(resp.read().decode() or "{}")
-            return {"ok": True, "command": command, "backend": "tesla", "response": payload}
+            payload = self._request(url, data=json.dumps(body).encode(), method="POST")
+            return {"ok": True, "command": label, "backend": "tesla", "response": payload}
         except urllib.error.HTTPError as e:
-            return {"ok": False, "command": command, "error": f"HTTP {e.code}",
+            return {"ok": False, "command": label, "error": f"HTTP {e.code}",
                     "detail": e.read().decode(errors="ignore")[:300]}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "command": command, "error": str(e)}
+            return {"ok": False, "command": label, "error": str(e)}
+
+    def get_vehicle_data(self) -> dict:
+        """GET the full vehicle state (battery, climate, location, lock, …) for the dashboard."""
+        ok, why = self.ready()
+        if not ok:
+            return {"ok": False, "error": why}
+        url = f"{self.base}/api/1/vehicles/{self.tag}/vehicle_data"
+        try:
+            return {"ok": True, "data": self._request(url).get("response", {})}
+        except urllib.error.HTTPError as e:
+            return {"ok": False, "error": f"HTTP {e.code}",
+                    "detail": e.read().decode(errors="ignore")[:300]}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
 
 
 def make_actuator(backend: str, dry: bool = False) -> VehicleActuator:

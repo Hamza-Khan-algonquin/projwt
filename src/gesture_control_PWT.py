@@ -37,8 +37,10 @@ from vehicle_actuator_PWT import make_actuator, KNOWN_COMMANDS
 
 # the discrete command menu the single-flick cycles through (keyboard sim)
 COMMAND_MENU = ["unlock", "lock", "flash", "honk", "frunk", "vent", "climate_on"]
-# band "tap-to-cycle, pause-to-confirm" menu — 'cancel' lets a dwell do nothing
-BAND_MENU = ["unlock", "lock", "flash", "honk", "frunk", "vent", "climate_on", "cancel"]
+# band "tap-to-cycle, pause-to-confirm" menu — 'cancel' lets a dwell do nothing.
+# Edit this list to taste; any key from vehicle_actuator TESLA_COMMANDS works.
+BAND_MENU = ["unlock", "lock", "flash", "honk", "frunk", "climate_warm",
+             "climate_cool", "charge_port_open", "boombox", "cancel"]
 ARM_GESTURE, CONFIRM_GESTURE, PANIC_GESTURE = "DOUBLE_FLICK", "DOUBLE_FLICK", "SHAKE"
 
 
