@@ -711,6 +711,37 @@ arming.
 
 ---
 
+## 9.11 Ergonomics + haptics + one-command launch
+
+**Tap, don't flick.** Hard wrist flicks hurt, and the band's accelerometer uses
+firmware wake-on-motion power management we can't override over BLE (keeping realtime
+HR on does NOT keep motion sampling awake — proven: HR streamed continuously while
+only one motion event fired, on the tap). The ergonomic fix: **tap the band face**
+(same `0x0e` events, far less strain). First tap firm to wake the accelerometer, then
+light taps register. Calibration on the user's wrist showed noise under ~1600 and
+intentional light taps ~2400+, so the default `--strength` is 2200; `--calibrate`
+prints strengths with no commands sent.
+
+**Flick/tap recognizer rebuilt** with two-level timing: a refractory window
+(`--flick-gap` 0.28 s) collapses one tap's ringing into a single tap, then a
+`--multi-window` (0.6 s) groups distinct taps → 1 = FLICK, 2 = DOUBLE_FLICK, 3+ =
+SHAKE. This fixed "a single flick read as a double, a double read as two singles."
+
+**Haptic feedback.** The WHOOP 4.0 has a buzz motor; drive it via
+`RUN_HAPTICS_PATTERN` (opcode 79, body `[pattern, loops, 0,0,0]`, pattern 2 = the 4.0
+buzz; from whoop-rs `haptic.rs`). The controller now buzzes on connect / arm / confirm
+/ panic, so the loop is closed: tap to arm → feel it arm → tap to confirm → feel it
+fire. `ble_haptic_PWT.py` tests the motor (`--sweep` compares patterns); `--no-haptics`
+disables it.
+
+**One-command launch.** `launch_PWT.ps1` (repo root) refreshes the token, starts the
+signing proxy if it isn't up, waits for it to listen, sets the env vars, and launches
+gesture control — then stops the proxy it started on exit. Run:
+`powershell -ExecutionPolicy Bypass -File launch_PWT.ps1`, tap to wake, tap-code to act.
+Full run/tuning/setup instructions live in `docs/QUICKSTART_PWT.md`.
+
+---
+
 ## 10. Regenerating the PDF / Word versions
 
 This Markdown file is the master. The PDF and Word copies are generated from it
