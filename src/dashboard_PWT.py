@@ -26,6 +26,32 @@ LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 
 def latest_biometrics():
+    # try live rolling offload first (near-real-time ~1 Hz, 1–2s lag)
+    rolling = LOG_DIR / "rolling_biometrics_PWT.json"
+    if rolling.exists():
+        try:
+            data = json.loads(rolling.read_text(encoding="utf-8"))
+            recs = data.get("records", [])
+            if recs:
+                hr = [r["hr"] for r in recs if r.get("hr") is not None]
+                temps = []
+                for r in recs:
+                    sr = r.get("skin_raw")
+                    if sr is not None:
+                        c = sr * 0.04
+                        if 20 <= c <= 45:
+                            temps.append(round(c, 1))
+                gmag = [r["gmag"] for r in recs if r.get("gmag") is not None]
+                return {
+                    "source": "rolling (live)",
+                    "hr": hr[-600:], "skin": temps[-1] if temps else None,
+                    "hr_now": hr[-1] if hr else None,
+                    "hr_min": min(hr) if hr else None, "hr_max": max(hr) if hr else None,
+                    "gmag": gmag,
+                }
+        except Exception:  # noqa: BLE001
+            pass
+    # fallback: latest CSV capture
     csvs = sorted(LOG_DIR.glob("rawstream_*_PWT.csv"))
     if not csvs:
         return None
@@ -45,10 +71,11 @@ def latest_biometrics():
                 except ValueError:
                     pass
     return {
-        "file": csvs[-1].name,
+        "source": f"CSV ({csvs[-1].name})",
         "hr": hr[-600:], "skin": temps[-1] if temps else None,
         "hr_now": hr[-1] if hr else None,
         "hr_min": min(hr) if hr else None, "hr_max": max(hr) if hr else None,
+        "gmag": gmag,
     }
 
 
@@ -80,6 +107,8 @@ HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
    font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:22px;max-width:900px;margin:auto}
  h1{font-size:20px;margin:0 0 2px}.sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+ .live-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;background:#80ffdb;margin-right:6px;animation:pulse 1s infinite}
+ @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
  h2{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:22px 0 10px}
  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
  .tile{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:14px 16px}
@@ -90,7 +119,7 @@ HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
  canvas{width:100%;height:150px;display:block}.err{color:var(--warn)}
  footer{color:var(--mut);font-size:12px;margin-top:22px}
 </style></head><body>
-<h1>ProjWT Dashboard</h1><div class="sub" id="asof"></div>
+<h1>ProjWT Dashboard</h1><div class="sub" id="asof"></div><div id="live-badge"></div>
 <h2>Vehicle</h2><div class="grid" id="car"></div>
 <h2>Smart climate</h2><div class="card" id="climate"></div>
 <h2>Biometrics</h2><div class="grid" id="bio"></div>
@@ -101,6 +130,11 @@ HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 const D = __DATA__;
 const css=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 document.getElementById('asof').textContent = "as of " + D.asof;
+const isLive = D.bio && D.bio.source && D.bio.source.includes('rolling');
+if(isLive){
+  document.getElementById('live-badge').innerHTML = '<div style="color:var(--ok);font-size:12px;margin-bottom:12px"><span class="live-indicator"></span>Live (auto-refresh)</div>';
+  setTimeout(()=>location.reload(), 3000);  // refresh every 3s when rolling
+}
 function tiles(el, items){document.getElementById(el).innerHTML = items.map(t=>
   `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}<span class="u"> ${t[2]||''}</span></div></div>`).join('');}
 if(D.car && D.car.ok){
