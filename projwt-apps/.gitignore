@@ -1,0 +1,46 @@
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/.pytest_cache/
+backend/dist/
+backend/build/
+backend/*.egg-info/
+
+# iOS
+ios/build/
+ios/.dart_tool/
+ios/.flutter-plugins
+ios/.flutter-plugins-dependencies
+ios/.packages
+ios/pubspec.lock
+ios/.idea/
+ios/*.xcarchive
+ios/Pods/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# Web
+web/build/
+web/node_modules/
+web/dist/
+web/.env.local
+web/.env.*.local
+
+# Windows
+windows/build/
+windows/node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
