@@ -10,16 +10,11 @@ class ProjWTApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        // Add providers here later
-      ],
-      child: MaterialApp(
-        title: 'ProjWT - Tesla Control',
-        theme: _buildDarkTheme(),
-        home: const MainNavigationScreen(),
-        debugShowCheckedModeBanner: false,
-      ),
+    return MaterialApp(
+      title: 'ProjWT - Tesla Control',
+      theme: _buildDarkTheme(),
+      home: const MainNavigationScreen(),
+      debugShowCheckedModeBanner: false,
     );
   }
 
