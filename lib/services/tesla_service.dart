@@ -21,9 +21,11 @@ class TeslaService {
         'Authorization': 'Bearer $_accessToken',
         'Content-Type': 'application/json',
       },
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
     ));
 
-    logger.i('Tesla service initialized with vehicle ID: $_vehicleId');
+    logger.i('Tesla initialized - Token: ${_accessToken?.substring(0, 10)}..., Vehicle: $_vehicleId');
   }
 
   bool get isConfigured => _accessToken != null && _vehicleId != null;
@@ -34,10 +36,10 @@ class TeslaService {
       return false;
     }
     try {
-      logger.i('Sending unlock command...');
-      await _dio.post('/vehicles/$_vehicleId/command/door_unlock');
-      logger.i('✓ Car unlocked');
-      return true;
+      logger.i('Sending unlock command to $_vehicleId');
+      final response = await _dio.post('/vehicles/$_vehicleId/command/door_unlock');
+      logger.i('✓ Car unlocked - Status: ${response.statusCode}');
+      return response.statusCode == 200;
     } catch (e) {
       logger.e('Unlock error: $e');
       return false;
