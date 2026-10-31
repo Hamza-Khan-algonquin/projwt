@@ -95,7 +95,7 @@ class ProjWTApp extends StatelessWidget {
       ),
 
       // Card theme
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: const Color(0xFF1A1F3A),
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -120,7 +120,7 @@ class ProjWTApp extends StatelessWidget {
       ),
 
       // Tab bar theme
-      tabBarTheme: const TabBarTheme(
+      tabBarTheme: const TabBarThemeData(
         labelColor: Color(0xFF00D9FF),
         unselectedLabelColor: Color(0xFF808080),
         indicator: UnderlineTabIndicator(
