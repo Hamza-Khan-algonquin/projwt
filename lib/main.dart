@@ -51,7 +51,7 @@ class ProjWTApp extends StatelessWidget {
         elevation: 0,
         centerTitle: true,
       ),
-      cardThemeData: CardThemeData(
+      cardTheme: CardThemeData(
         color: const Color(0xFF1A1F3A),
         elevation: 0,
         shape: RoundedRectangleBorder(
