@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -441,7 +442,7 @@ class _AppleCard extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
-            filter: const ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: child,
@@ -474,5 +475,3 @@ class _QuickControlButton extends StatelessWidget {
     );
   }
 }
-
-import 'dart:ui' as ui;
