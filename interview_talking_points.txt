@@ -1,0 +1,197 @@
+==============================================
+SKEETER - QUICK REFERENCE (Read Before Interview)
+==============================================
+
+ELEVATOR PITCH (30 seconds)
+------------------------------------------
+"SKEETER is a multiplayer party game where you play as a mosquito or a host defending human bodies. Every role is radically different. The core tension: drink more blood, get richer but slower. Do you risk one more bite, or run it home now? Last Call (final 18 seconds) is worth 2x so every round has a climax. 75 files, 13K lines of C#, peer-to-peer multiplayer, proximity voice, bot AI, and a highlight system for streamers."
+
+
+THE PROBLEM & SOLUTION (2 min)
+------------------------------------------
+PROBLEM:
+  - Party games stuck in 1v1 (nobody to root for) or huge multiplayer (can't watch)
+  - No asymmetric games at 2-4 player scale
+  - Streamers need climax every round, not every hour
+
+SOLUTION:
+  - Asymmetric roles (mosquito vs host) - flipped each round
+  - 90-second rounds with designed climax (Last Call)
+  - Visual feedback designed for clips (near-miss slow-mo, freeze-frame, vertical capture)
+  - Bot AI fills empty seats
+  - Proximity voice makes coordination risky
+
+
+CORE LOOP (elevator pitch version)
+------------------------------------------
+You are a mosquito.
+  - Land on human skin → automatically drink blood
+  - Blood fills belly, makes you heavier (slower + no dash)
+  - Carry blood to glowing window → "bank" it for points
+  - Die before banking = lose everything
+
+As a host:
+  - Control 3 human bodies
+  - Click to swat mosquito
+  - Tab/1/2/3 to switch bodies
+  - Prevent mosquito from reaching window
+
+
+8 KEY FEATURES (order of importance)
+------------------------------------------
+1. Asymmetric multiplayer (2-4 players, roles random)
+2. Tension loop (blood = heavy, creates decision every round)
+3. Last Call mechanic (final 18s worth 2x points)
+4. Multiplayer (LAN + WAN with port forwarding)
+5. Bot AI with difficulty ladder
+6. Visual feedback for clips (slow-mo, freeze-frame, vertical capture)
+7. Personal best tracking
+8. Accessibility (motion, colorblind, interface, danger cue)
+
+
+ARCHITECTURE SUMMARY (1 min)
+------------------------------------------
+Code-first design:
+  - No scene files, no prefabs
+  - ArenaBuilder.cs constructs entire round in code
+  - Enables: instant restarts, text diffs, engine ports
+
+8 Subsystems:
+  1. Core (GameEvents spine, Tuning constants, MatchDirector)
+  2. Mosquito (flight, feeding, death)
+  3. Human (body control, squad switching, swat)
+  4. AI (perception, bot brains, difficulty)
+  5. Voice (proximity audio, detection integration)
+  6. Presentation (camera, shake, particles, ragdoll)
+  7. Networking (peer-to-peer UDP)
+  8. UI (HUD, menus, recap)
+
+Why event-driven?
+  - Audio, particles, HUD, logs all listen to same events
+  - Add reaction without touching gameplay code
+  - No spaghetti references
+
+
+TECHNICAL HIGHLIGHTS (1 min)
+------------------------------------------
+✓ Event-driven architecture (GameEvents = spine)
+✓ Procedural generation (room builds from code)
+✓ Intent-based input (local, bot, network use same interface)
+✓ Audio synthesis (no large files, adaptive sounds)
+✓ Proximity voice + perception integration (voice is tactical)
+✓ Ragdoll physics + debris (death is memorable)
+✓ Trauma-based camera shake (impact without sickness)
+✓ Highlight log for streamers (find best moments fast)
+
+
+BY THE NUMBERS
+------------------------------------------
+75 files
+13,349 lines of C# code
+40 commits
+8 subsystems
+2,600+ unit test assertions
+90-second rounds
+2-4 players (+ bots for empty seats)
+~200 LOC relay server (future scale)
+
+
+Q&A ANSWERS (30 sec each)
+------------------------------------------
+
+Q: "Why Unity?"
+A: "Cross-platform (Windows/macOS/Linux/future iOS), fast to iterate with scene-free design, good audio synthesis support, low barrier to entry (C#). If rebuilding, I'd use Godot, but for 2-month sprint, Unity's ecosystem saved time."
+
+Q: "How would you scale this?"
+A: "v1 is peer-to-peer (no scaling needed). To scale: (1) Relay server (~200 LOC) for NAT traversal, (2) Leaderboard backend for ranked play, (3) S3 for replays, (4) iOS/Android ports. Key: don't need server until strangers play ranked. Friends-only stays peer-to-peer (faster, cheaper, lower latency)."
+
+Q: "Hardest part?"
+A: "Two things: (1) Asymmetric balance - took 3 weeks to dial in belly curve so 'too full to dash' happens before 'too full to fly'. (2) Audio synthesis + voice perception - mixing procedural audio with real microphone input and making bots react to it. Took 2 weeks to get sub-100ms latency and no clicks."
+
+Q: "What would you do differently?"
+A: "(1) Assembly definitions from day one - documented boundaries but didn't enforce. (2) Input system migration - legacy Input Manager works but new system is cleaner. (3) Voice transport interface first - bolted on network later, should've decoupled earlier."
+
+Q: "Why this core loop?"
+A: "Blood = weight creates visible tension. Player sees belly fill (visual indicator of risk), speed drops (mechanical consequence), and every decision is visible on the player's own body. Contrast with abstract resources (numbers on screen) that don't drive engagement."
+
+Q: "Networking approach?"
+A: "Peer-to-peer. Movement owned by whoever drives it (client-owned, no rubber-banding for your own mosquito). Outcomes (bites, banks, kills) host-authoritative so no dispute. Right trade-off for friends playing together - trusts players, low latency. If ranked comes later, switch to server-authoritative movement."
+
+Q: "Accessibility?"
+A: "Not bolted on, designed in: Reduce motion (disables slow-mo/camera punches), colorblind modes (cyan-safe colors), tap instead of hold (buzz/mic), interface scaling, danger cue (text warning for swat). Everyone can play."
+
+
+FACTS TO ANCHOR ON (if asked for proof)
+------------------------------------------
+"75 C# files, 13,349 lines of code, 40 commits in the repo"
+"2,600+ unit test assertions validating balance rules"
+"8 subsystems (Core, Mosquito, Human, AI, Voice, Presentation, Networking, UI)"
+"90-second round design fits vertical video"
+"Event-driven architecture - GameEvents.cs is the spine"
+"Procedural generation - entire arena builds from ArenaBuilder.cs"
+"Intent abstraction - local player, bot, future network peer all use same interface"
+
+
+WHAT YOU'RE SHOWING
+------------------------------------------
+✓ Strong game design (hook is simple, tension is mechanical)
+✓ Multiplayer architecture understanding (peer-to-peer authority model)
+✓ Code organization skills (event-driven, centralized tuning, no spaghetti)
+✓ Accessibility first mindset (not afterthought)
+✓ Systems thinking (audio synthesis, perception integration, physics)
+✓ Player psychology (personal bests, climax every round, content creator tools)
+✓ Scalability thinking (relay server plan, migrate from local to backend)
+✓ Testing discipline (2,600+ assertions, rule validation)
+
+
+TELL THEM YOU CAN EXPLAIN:
+------------------------------------------
+[ ] The core loop in one sentence
+[ ] Why asymmetry matters
+[ ] The event-driven architecture and why it scales
+[ ] The authority model for networking
+[ ] The three hard problems you solved
+[ ] The two things you'd do differently
+[ ] How you'd scale to 10,000 players
+[ ] The accessibility design
+[ ] Why procedural generation was the right call
+[ ] The three "why this?" decisions (Unity, event-driven, peer-to-peer)
+
+
+YOUR STORY IN BULLET POINTS
+------------------------------------------
+→ Built a multiplayer game with strong core loop (blood = weight creates tension)
+→ Asymmetric roles so everyone stays engaged
+→ Event-driven architecture so features scale
+→ Procedural generation enables instant iteration
+→ Accessibility designed in, not bolted on
+→ Proximity voice integrated with perception (voice is tactical)
+→ Validated balance with 2,600+ unit tests
+→ Peer-to-peer networking for friends, scalable to backend later
+→ Audio synthesis + ragdoll physics for memorable moments
+→ Highlight system for streamers (solve "where was the good part?" problem)
+
+
+CONVERSATION STARTERS
+------------------------------------------
+If they seem interested in design:
+  "The tension comes entirely from visible weight. Your belly fills on your body. Everyone sees the decision."
+
+If they seem interested in architecture:
+  "The architecture is event-driven - audio, particles, camera, HUD, logs all listen to the same events. You can add new systems without touching gameplay code."
+
+If they seem interested in multiplayer:
+  "For v1, peer-to-peer is the right call - no server, low latency, trusts friends. The tricky part is authority: movement is client-owned (your mosquito never rubber-bands), but outcomes are host-authoritative (no disagreement on whether a bite connected)."
+
+If they seem interested in content creation:
+  "Streamers can press F2 for vertical capture (9:16, HUD inside crop) at record time, and the game logs every dramatic moment so they can find the good 30 seconds of a 2-hour session by reading a text file."
+
+
+STAY CONFIDENT
+------------------------------------------
+You built this.
+You understand every line.
+You can explain the architecture, the design choices, the hard parts.
+You know what worked, what didn't, what you'd do differently.
+
+That's all you need.

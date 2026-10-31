@@ -1,0 +1,217 @@
+# SKEETER Production Deployment Configuration
+# Build, sign, and release settings for desktop and multiplayer deployment
+
+project:
+  name: SKEETER
+  description: "Multiplayer asymmetric party game - play as mosquito or host defending human bodies"
+  version: "1.0.0"
+  build_target: "Standalone"
+
+build:
+  # Desktop Standalone Builds
+  windows:
+    platform: "StandaloneWindows64"
+    output_dir: "Builds/Windows"
+    executable: "SKEETER.exe"
+    minimum_specs:
+      ram: "4GB"
+      disk: "2GB SSD"
+      processor: "Intel i5 / AMD Ryzen 5"
+      graphics: "NVIDIA GTX 960 / AMD R9 290"
+    features:
+      - "UDP multiplayer (LAN / port forward required for WAN)"
+      - "Proximity voice chat"
+      - "Vertical capture mode for video content"
+      - "Highlights and replay system"
+
+  macos:
+    platform: "StandaloneOSX"
+    output_dir: "Builds/MacOS"
+    executable: "SKEETER.app"
+    minimum_specs:
+      macos_version: "10.13+"
+      ram: "4GB"
+      disk: "2GB SSD"
+      processor: "Intel i5 / M1+"
+    features:
+      - "Native Mac support"
+      - "Same networking as Windows"
+      - "Full feature parity"
+
+  linux:
+    platform: "StandaloneLinux64"
+    output_dir: "Builds/Linux"
+    executable: "SKEETER"
+    minimum_specs:
+      ram: "4GB"
+      disk: "2GB SSD"
+
+  # Quality Settings
+  quality:
+    editor_log: true
+    debug_symbols: false
+    development_build: false
+    headless_mode: false
+
+  # Graphics
+  rendering:
+    graphics_api: "Auto"
+    color_space: "Linear"
+    hdr: false
+    vrr_enabled: false
+
+networking:
+  transport: "UDP"
+  default_port: 7788
+  port_forwarding_required: "Yes (for WAN play)"
+  relay_server: "Future - not yet implemented"
+
+  voice:
+    transport: "In-game, UDP-based"
+    proximity_falloff: "Realistic spatial audio"
+    detection_model: "Position-based awareness"
+    microphone_device: "Selectable in settings"
+
+  session:
+    max_players: 4
+    bot_fill: "Enabled - bots fill empty seats"
+    authority: "Host-authoritative for outcomes"
+    movement_sync: "Client-owned with server broadcast"
+
+deployment:
+  # Release Checklist
+  pre_release:
+    - "Run Tools/RuleTests (dotnet run) - ensure all invariants pass"
+    - "Verify Windows / macOS / Linux builds complete without errors"
+    - "Test multiplayer with LAN setup (2+ players minimum)"
+    - "Test voice proximity detection and falloff"
+    - "Verify all accessibility settings work correctly"
+    - "Performance test on minimum spec machine (60 FPS target)"
+
+  # Platform-specific Steps
+  windows_release:
+    - "Build StandaloneWindows64"
+    - "Sign executable with code signing certificate"
+    - "Create installer with NSIS or WiX"
+    - "Hash executable for integrity verification"
+    - "Upload to CDN with checksums"
+
+  macos_release:
+    - "Build StandaloneOSX"
+    - "Code sign with Apple Developer ID"
+    - "Create DMG installer"
+    - "Notarize for Gatekeeper (required for distribution)"
+    - "Upload to CDN"
+
+  linux_release:
+    - "Build StandaloneLinux64"
+    - "Create AppImage or Flatpak distribution"
+    - "Test on multiple Linux distributions"
+    - "Upload to CDN"
+
+  # Distribution
+  distribution:
+    primary: "Steam (planned)"
+    secondary: "Itch.io, GitHub Releases"
+    website: "skeeter.game"
+    documentation: "README + gameplay guides"
+
+content_delivery:
+  cdn: "CloudFlare / AWS CloudFront (select based on volume)"
+  build_size_estimate: "~200MB per platform"
+  total_size_all_platforms: "~600MB"
+
+  compression:
+    - "Build in Release mode"
+    - "Strip unnecessary symbols"
+    - "Use Unity cloud build compression"
+
+performance_targets:
+  fps_target: 60
+  ram_usage: "< 2GB per instance"
+  voice_latency: "< 100ms"
+  network_tickrate: "20 ticks/sec"
+
+  optimization:
+    - "Procedural generation (no large mesh files)"
+    - "Runtime material creation (minimal texture duplication)"
+    - "Sound synthesis (no large audio files)"
+    - "Efficient particle pooling"
+
+analytics_and_feedback:
+  crash_reporting: "Enabled"
+  performance_metrics: "Frame time, network ping"
+  gameplay_stats: "Wins/losses, highest scores"
+  storage: "Player-local or optional cloud sync (not yet implemented)"
+
+testing:
+  # Unit Tests
+  rule_tests: "Tools/RuleTests/"
+  test_command: "cd Tools/RuleTests && dotnet run"
+  coverage: "Balance rules, weight curve, difficulty ladder, banking invariants"
+
+  # Integration Tests
+  multiplayer_scenarios:
+    - "Solo play with bots (offline)"
+    - "2-player LAN (1 host vs 1 mosquito)"
+    - "3-player (2v1 or 1v2)"
+    - "4-player (3v1, 2v2, 1v3)"
+    - "Bot + human mixed scenarios"
+
+  voice_tests:
+    - "Proximity falloff accuracy"
+    - "Detection model integration"
+    - "Voice recognition (human vs mosquito)"
+    - "Multi-platform audio device compatibility"
+
+  accessibility_tests:
+    - "Reduce motion + slow-mo disabled"
+    - "Color blindness modes (red-green safe)"
+    - "Interface scaling"
+    - "Alternative input (tap vs hold)"
+
+infrastructure:
+  monitoring: "Not required for v1 (no backend server)"
+  scaling: "N/A - client-to-client with optional relay in future"
+  backup: "Player save games to local storage"
+
+  future_infrastructure:
+    - "Relay server for NAT traversal (~200 LOC, 1 VPS)"
+    - "Leaderboard database"
+    - "Replay storage / clip hosting"
+    - "Community map sharing"
+
+rollout_strategy:
+  phase_1: "Beta - Discord community (48 hours)"
+  phase_2: "Early Access - Itch.io (1 week)"
+  phase_3: "Full Release - Steam + all platforms"
+
+  feedback_channels:
+    - "Discord: #bug-reports, #feedback, #balance"
+    - "GitHub Issues for tracked bugs"
+    - "Telemetry: frame time, crashes, user retention"
+
+security:
+  code_signing: "Required for Windows / macOS distributions"
+  executable_protection: "Notarization (macOS), SmartScreen (Windows)"
+  dependencies: "Minimal - only Unity standard library"
+  third_party_code: "None - all custom"
+
+  settings_storage:
+    - "Player settings stored locally (plaintext)"
+    - "Personal bests stored in local JSON"
+    - "No account system in v1"
+    - "No cloud sync in v1"
+
+monitoring_and_maintenance:
+  crash_logs: "Stored locally, user can share for debugging"
+  update_frequency: "As-needed based on bug reports"
+  maintenance_window: "None required (client-only)"
+  deprecation: "Unity 2022.3 LTS supported; monitor for future Unity versions"
+
+roadmap_infrastructure_needs:
+  - "Relay server (NAT traversal for WAN play)"
+  - "Leaderboard backend (PostgreSQL + simple REST API)"
+  - "Replay / highlight storage (S3 / cloud storage)"
+  - "Community maps (user-generated content system)"
+  - "Cross-platform play (iOS / Android ports)"
