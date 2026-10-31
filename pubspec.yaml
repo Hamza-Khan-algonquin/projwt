@@ -17,6 +17,21 @@ dependencies:
   # State Management
   provider: ^6.0.0
 
+  # BLE (WHOOP Band)
+  flutter_blue_plus: ^1.30.0
+
+  # HTTP (Tesla API)
+  dio: ^5.3.0
+
+  # Local Storage
+  shared_preferences: ^2.2.0
+
+  # Charts
+  fl_chart: ^0.64.0
+
+  # Logging
+  logger: ^2.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

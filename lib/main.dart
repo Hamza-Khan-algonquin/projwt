@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'services/whoop_service.dart';
+import 'services/tesla_service.dart';
+import 'services/storage_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await StorageService().initialize();
   runApp(const ProjWTApp());
 }
 
@@ -9,15 +16,22 @@ class ProjWTApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ProjWT - Tesla Control',
-      theme: _buildDarkTheme(),
-      home: const MainNavigationScreen(),
-      debugShowCheckedModeBanner: false,
+    return MultiProvider(
+      providers: [
+        Provider(create: (_) => TeslaService()),
+        Provider(create: (_) => WhoopService()),
+        Provider(create: (_) => StorageService()),
+      ],
+      child: MaterialApp(
+        title: 'ProjWT',
+        theme: _buildAppleTheme(),
+        home: const MainNavigationScreen(),
+        debugShowCheckedModeBanner: false,
+      ),
     );
   }
 
-  static ThemeData _buildDarkTheme() {
+  static ThemeData _buildAppleTheme() {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -25,47 +39,15 @@ class ProjWTApp extends StatelessWidget {
       colorScheme: ColorScheme.dark(
         background: const Color(0xFF0A0E27),
         surface: const Color(0xFF1A1F3A),
-        surfaceVariant: const Color(0xFF2A3150),
-        onBackground: const Color(0xFFE0E0E0),
-        onSurface: const Color(0xFFE0E0E0),
         primary: const Color(0xFF00D9FF),
-        onPrimary: const Color(0xFF000000),
         secondary: const Color(0xFFB84FFF),
-        onSecondary: const Color(0xFF000000),
         tertiary: const Color(0xFF00FF88),
-        onTertiary: const Color(0xFF000000),
-        error: const Color(0xFFFF6B6B),
-        onError: const Color(0xFF000000),
       ),
       textTheme: const TextTheme(
-        headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFFE0E0E0)),
-        headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFFE0E0E0)),
-        headlineSmall: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE0E0E0)),
-        bodyLarge: TextStyle(fontSize: 16, color: Color(0xFFE0E0E0)),
+        headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Color(0xFFE0E0E0), letterSpacing: -0.5),
+        headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: Color(0xFFE0E0E0)),
+        bodyLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Color(0xFFE0E0E0)),
         bodyMedium: TextStyle(fontSize: 14, color: Color(0xFFA0A0A0)),
-        labelSmall: TextStyle(fontSize: 12, color: Color(0xFF808080)),
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF1A1F3A),
-        foregroundColor: Color(0xFFE0E0E0),
-        elevation: 0,
-        centerTitle: true,
-      ),
-      cardTheme: CardThemeData(
-        color: const Color(0xFF1A1F3A),
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFF2A3150), width: 1),
-        ),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF00D9FF),
-          foregroundColor: const Color(0xFF000000),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
       ),
     );
   }
@@ -83,8 +65,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const FitnessScreen(),
-    const GesturesScreen(),
-    const SummonScreen(),
+    const ControlsScreen(),
     const SettingsScreen(),
   ];
 
@@ -92,20 +73,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _screens[_selectedIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (int index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.directions_car), label: 'Dashboard'),
-          NavigationDestination(icon: Icon(Icons.favorite), label: 'Fitness'),
-          NavigationDestination(icon: Icon(Icons.touch_app), label: 'Gestures'),
-          NavigationDestination(icon: Icon(Icons.location_on), label: 'Summon'),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+        ),
+        child: NavigationBar(
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: (int index) => setState(() => _selectedIndex = index),
+          backgroundColor: const Color(0xFF1A1F3A).withOpacity(0.8),
+          destinations: const [
+            NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
+            NavigationDestination(icon: Icon(Icons.favorite_rounded), label: 'Health'),
+            NavigationDestination(icon: Icon(Icons.bolt_rounded), label: 'Control'),
+            NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
+          ],
+        ),
       ),
     );
   }
@@ -117,101 +99,61 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tesla Control')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    final storage = Provider.of<StorageService>(context);
+    final latest = storage.getLatestBiometric();
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Health Status', style: Theme.of(context).textTheme.headlineLarge),
+            const SizedBox(height: 20),
+            _AppleCard(
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      const Text('Vehicle Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _buildStatusItem('🔒 Locked', const Color(0xFF00FF88)),
-                          _buildStatusItem('🔋 82%', const Color(0xFF00D9FF)),
-                        ],
-                      ),
+                      _StatItem('❤️', '${latest?['heart_rate'] ?? '--'}', 'BPM'),
+                      _StatItem('📈', '${latest?['recovery_score'] ?? '--'}%', 'Recovery'),
+                      _StatItem('⚡', '${latest?['strain_score'] ?? '--'}', 'Strain'),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('Controls', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                children: [
-                  _buildControlButton('🔓 Unlock', 0xFF00D9FF),
-                  _buildControlButton('🔒 Lock', 0xFFB84FFF),
-                  _buildControlButton('📢 Honk', 0xFF00FF88),
-                  _buildControlButton('💡 Flash', 0xFFFFB800),
-                  _buildControlButton('❄️ Climate', 0xFF00D9FF),
-                  _buildControlButton('⚡ Charge', 0xFF00FF88),
                 ],
               ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.stop_circle),
-                  label: const Text('🛑 PANIC STOP'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6B6B),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusItem(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color, width: 1),
-      ),
-      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-    );
-  }
-
-  Widget _buildControlButton(String label, int colorValue) {
-    return Card(
-      child: InkWell(
-        onTap: () {},
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Color(colorValue), width: 2),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(colorValue)),
             ),
-          ),
+            const SizedBox(height: 24),
+            Text('Quick Control', style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 16),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              children: [
+                _QuickControlButton('🔓', 'Unlock', Colors.cyan),
+                _QuickControlButton('🔒', 'Lock', Colors.purple),
+                _QuickControlButton('📢', 'Honk', Colors.green),
+                _QuickControlButton('💡', 'Flash', Colors.amber),
+              ],
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _StatItem(String icon, String value, String label) {
+    return Column(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 32)),
+        const SizedBox(height: 8),
+        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFA0A0A0))),
+      ],
     );
   }
 }
@@ -222,35 +164,125 @@ class FitnessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Fitness & Biometrics')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Card(
+    final storage = Provider.of<StorageService>(context);
+    final latest = storage.getLatestBiometric();
+    final history = storage.getBiometricHistory();
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Biometrics', style: Theme.of(context).textTheme.headlineLarge),
+            const SizedBox(height: 20),
+            _AppleCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Recovery Score', style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 12),
+                  Text('${latest?['recovery_score'] ?? 0}%', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Color(0xFF00FF88))),
+                  LinearProgressIndicator(value: (latest?['recovery_score'] ?? 0) / 100, minHeight: 8),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              children: [
+                _MetricCard('Heart Rate', '${latest?['heart_rate'] ?? '--'} bpm', Colors.red),
+                _MetricCard('Strain', '${latest?['strain_score'] ?? '--'}', Colors.orange),
+                _MetricCard('Sleep', '${latest?['sleep_hours'] ?? '--'}h', Colors.blue),
+                _MetricCard('Temp', '${latest?['skin_temperature'] ?? '--'}°F', Colors.cyan),
+              ],
+            ),
+            const SizedBox(height: 24),
+            if (history.length > 1)
+              _AppleCard(
+                child: SizedBox(
+                  height: 200,
+                  child: LineChart(
+                    LineChartData(
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: history.asMap().entries.map((e) {
+                            return FlSpot(e.key.toDouble(), (e.value['heart_rate'] as num?)?.toDouble() ?? 0);
+                          }).toList(),
+                          isCurved: true,
+                          color: Colors.red,
+                          barWidth: 3,
+                          dotData: const FlDotData(show: false),
+                        ),
+                      ],
+                      gridData: const FlGridData(show: false),
+                      borderData: FlBorderData(show: false),
+                      titlesData: const FlTitlesData(show: false),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _MetricCard(String title, String value, Color color) {
+    return _AppleCard(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFFA0A0A0))),
+          const SizedBox(height: 8),
+          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+// CONTROLS SCREEN
+class ControlsScreen extends StatefulWidget {
+  const ControlsScreen({Key? key}) : super(key: key);
+
+  @override
+  State<ControlsScreen> createState() => _ControlsScreenState();
+}
+
+class _ControlsScreenState extends State<ControlsScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final tesla = Provider.of<TeslaService>(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Tesla Control', style: Theme.of(context).textTheme.headlineLarge),
+            const SizedBox(height: 20),
+            if (!tesla.isConfigured)
+              _AppleCard(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      const Text('Recovery Score', style: TextStyle(fontSize: 14, color: Color(0xFFA0A0A0))),
-                      const SizedBox(height: 8),
-                      const Text('72%', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Color(0xFF00FF88))),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: 0.72,
-                        backgroundColor: const Color(0xFF2A3150),
-                        valueColor: AlwaysStoppedAnimation(const Color(0xFF00FF88).withOpacity(0.7)),
-                      ),
+                      const Icon(Icons.lock_outline_rounded, size: 32, color: Color(0xFFFF6B6B)),
+                      const SizedBox(height: 12),
+                      const Text('Configure Tesla credentials in Settings', textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      ElevatedButton(onPressed: () {}, child: const Text('Go to Settings')),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              const Text('Key Metrics', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
+              )
+            else ...[
               GridView.count(
                 crossAxisCount: 2,
                 shrinkWrap: true,
@@ -258,142 +290,38 @@ class FitnessScreen extends StatelessWidget {
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
                 children: [
-                  _buildMetricCard('❤️ HR', '68 bpm', const Color(0xFFFF6B6B)),
-                  _buildMetricCard('⚡ Strain', '4.2', const Color(0xFFB84FFF)),
-                  _buildMetricCard('😴 Sleep', '7h 32m', const Color(0xFF00D9FF)),
-                  _buildMetricCard('🔋 Battery', '62%', const Color(0xFFFFB800)),
+                  _TeslaButton('🔓', 'Unlock', () => tesla.unlock()),
+                  _TeslaButton('🔒', 'Lock', () => tesla.lock()),
+                  _TeslaButton('📢', 'Honk', () => tesla.honk()),
+                  _TeslaButton('💡', 'Flash', () => tesla.flashLights()),
+                  _TeslaButton('❄️', 'Climate', () => tesla.setClimate(72)),
+                  _TeslaButton('⚡', 'Charge', () => tesla.startCharging()),
                 ],
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricCard(String label, String value, Color color) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFA0A0A0))),
-            const SizedBox(height: 8),
-            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
           ],
         ),
       ),
     );
   }
-}
 
-// GESTURES SCREEN
-class GesturesScreen extends StatelessWidget {
-  const GesturesScreen({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Gesture Control')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('WHOOP Band', style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(height: 4),
-                          Text('Connected', style: TextStyle(fontSize: 12, color: Color(0xFFA0A0A0))),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00FF88).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF00FF88), width: 1),
-                        ),
-                        child: const Text('✓ On Wrist', style: TextStyle(color: Color(0xFF00FF88), fontSize: 12, fontWeight: FontWeight.w600)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('Gesture Vocabulary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              _buildGestureItem('🔓 Unlock', 'tap → double_tap → tap'),
-              _buildGestureItem('🔒 Lock', 'double_tap → tap'),
-              _buildGestureItem('📢 Honk', 'dwell (hold 2 sec)'),
-              _buildGestureItem('🛑 Panic', 'shake vigorously'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGestureItem(String action, String gesture) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(action, style: const TextStyle(fontWeight: FontWeight.w600)),
-            Text(gesture, style: const TextStyle(fontSize: 12, color: Color(0xFFA0A0A0), fontFamily: 'monospace')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// SUMMON SCREEN
-class SummonScreen extends StatelessWidget {
-  const SummonScreen({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Summon (Auto Move)')),
-      body: SafeArea(
-        child: Center(
-          child: Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.location_on, size: 64, color: Color(0xFF00D9FF)),
-                  const SizedBox(height: 16),
-                  const Text('Autonomous Movement', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Coming Soon', style: TextStyle(color: Color(0xFFA0A0A0))),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {},
-                      child: const Text('Start Summon'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+  Widget _TeslaButton(String icon, String label, Future<bool> Function() onTap) {
+    return _AppleCard(
+      onTap: () async {
+        final success = await onTap();
+        if (success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$label sent!'), backgroundColor: Colors.green),
+          );
+        }
+      },
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 32)),
+          const SizedBox(height: 12),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
       ),
     );
   }
@@ -408,197 +336,143 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _whoopControlEnabled = false;
-  final TextEditingController _teslaTokenController = TextEditingController();
-  final TextEditingController _teslaVinController = TextEditingController();
-  bool _teslaSaved = false;
-  bool _whoopConnected = false;
-  bool _showTeslaForm = false;
+  late TextEditingController _tokenController;
+  late TextEditingController _vinController;
+
+  @override
+  void initState() {
+    super.initState();
+    final storage = StorageService();
+    _tokenController = TextEditingController(text: storage.getTeslaToken() ?? '');
+    _vinController = TextEditingController(text: storage.getTeslaVin() ?? '');
+  }
 
   @override
   void dispose() {
-    _teslaTokenController.dispose();
-    _teslaVinController.dispose();
+    _tokenController.dispose();
+    _vinController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Tesla API', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('API Credentials', style: TextStyle(fontWeight: FontWeight.w600)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _teslaSaved ? const Color(0xFF00FF88).withOpacity(0.2) : const Color(0xFFFF6B6B).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _teslaSaved ? '✓ Saved' : '✗ Not Set',
-                              style: TextStyle(
-                                color: _teslaSaved ? const Color(0xFF00FF88) : const Color(0xFFFF6B6B),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_showTeslaForm) ...[
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _teslaTokenController,
-                          decoration: InputDecoration(
-                            labelText: 'API Token',
-                            hintText: 'Your Tesla API token',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          obscureText: true,
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _teslaVinController,
-                          decoration: InputDecoration(
-                            labelText: 'Vehicle VIN',
-                            hintText: 'Your Tesla VIN',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              if (_teslaTokenController.text.isNotEmpty && _teslaVinController.text.isNotEmpty) {
-                                setState(() {
-                                  _teslaSaved = true;
-                                  _showTeslaForm = false;
-                                });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Tesla credentials saved!'), backgroundColor: Color(0xFF00FF88)),
-                                );
-                              }
-                            },
-                            child: const Text('Save Credentials'),
-                          ),
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                _showTeslaForm = true;
-                              });
-                            },
-                            child: const Text('Enter Credentials'),
-                          ),
-                        ),
-                      ],
-                    ],
+    final tesla = Provider.of<TeslaService>(context);
+    final storage = Provider.of<StorageService>(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Settings', style: Theme.of(context).textTheme.headlineLarge),
+            const SizedBox(height: 20),
+            Text('Tesla Configuration', style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 12),
+            _AppleCard(
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _tokenController,
+                    decoration: InputDecoration(
+                      labelText: 'API Token',
+                      hintText: 'Enter your Tesla API token',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    obscureText: true,
                   ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('WHOOP Band', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Connection Status', style: TextStyle(fontWeight: FontWeight.w600)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _whoopConnected ? const Color(0xFF00FF88).withOpacity(0.2) : const Color(0xFFFF6B6B).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _whoopConnected ? '✓ Connected' : '✗ Not Connected',
-                              style: TextStyle(
-                                color: _whoopConnected ? const Color(0xFF00FF88) : const Color(0xFFFF6B6B),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _whoopConnected = !_whoopConnected;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(_whoopConnected ? 'Scanning for WHOOP band...' : 'Disconnected from WHOOP')),
-                            );
-                          },
-                          icon: Icon(_whoopConnected ? Icons.bluetooth_connected : Icons.bluetooth),
-                          label: Text(_whoopConnected ? 'Disconnect' : 'Connect Band'),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _vinController,
+                    decoration: InputDecoration(
+                      labelText: 'Vehicle VIN',
+                      hintText: 'Enter your vehicle VIN',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Enable WHOOP Control', style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(height: 4),
-                          Text('Use band for Tesla commands', style: TextStyle(fontSize: 12, color: Color(0xFFA0A0A0))),
-                        ],
-                      ),
-                      Switch(
-                        value: _whoopControlEnabled,
-                        activeColor: const Color(0xFF00D9FF),
-                        onChanged: (value) {
-                          setState(() {
-                            _whoopControlEnabled = value;
-                          });
-                        },
-                      ),
-                    ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        storage.saveTeslaCredentials(_tokenController.text, _vinController.text);
+                        tesla.initialize(_tokenController.text, _vinController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Credentials saved!'), backgroundColor: Colors.green),
+                        );
+                      },
+                      child: const Text('Save Credentials'),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// APPLE DESIGN COMPONENTS
+class _AppleCard extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+
+  const _AppleCard({required this.child, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1F3A).withOpacity(0.6),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: const ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: child,
+            ),
           ),
         ),
       ),
     );
   }
 }
+
+class _QuickControlButton extends StatelessWidget {
+  final String icon;
+  final String label;
+  final Color color;
+
+  const _QuickControlButton(this.icon, this.label, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return _AppleCard(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 28)),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+import 'dart:ui' as ui;
